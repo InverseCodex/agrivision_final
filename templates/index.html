@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <title></title>
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <!-- Font Links -->
+         <!-- 1. Inter -->
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+
+        <!-- 2 Manrope -->
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Manrope:wght@200..800&display=swap" rel="stylesheet">
+
+        <!-- 3. Source Sans 3 -->
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Manrope:wght@200..800&family=Source+Sans+3:ital,wght@0,200..900;1,200..900&display=swap" rel="stylesheet">
+        <!-- Other Dependencies -->
+
+
+        <!-- Main CSS Links -->
+        <link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">
+
+        <!-- CSS Links for Responsiveness -->
+         <link rel="stylesheet" href="">
+    </head>
+
+    <body>
+        <!-- FOR MOBILE USERS -->
+        <button
+            class="mobile-nav-toggle"
+            id="mobile-nav-toggle"
+            type="button"
+            aria-controls="sidebar-nav"
+            aria-expanded="false"
+            aria-label="Toggle navigation"
+        >
+            <ion-icon name="menu-outline"></ion-icon>
+        </button>
+        <div class="navbar-overlay" id="navbar-overlay" aria-hidden="true"></div>
+
+
+        <!-- FOR PC USERS -->
+
+         <div class="navbar-parent" id="sidebar-nav"> <!-- NAVBAR CONTAINER OPENING -->
+
+            <!-- NAVBAR CHILD (USER INFO) -->
+            <div class="navbar-child-user">
+
+                <div class="user-info">
+
+                    <div class="user-image-background">
+                    <ion-icon class="user-image" name="person-outline"></ion-icon>
+                    </div>
+                    <div class="user-authentication">
+                        <p class="user-name">{{ username }}</p>
+                        <p class="user-class">{{ privilege }}</p>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- NAVBAR CHILD (NAVBAR BUTTONS) -->
+            <div class="navbar-child-navigation">
+
+                <button class="navbar-button button-active" id="upload-button">
+                    <ion-icon name="image-outline"></ion-icon>
+                    <p>Upload Images</p>
+                </button>
+
+                <button class="navbar-button" id="results-button">
+                    <ion-icon name="eye-outline"></ion-icon>
+                    <p>View Results</p>
+                </button>
+
+                <button class="navbar-button" id="settings-button">
+                    <ion-icon name="cog-outline"></ion-icon>
+                    <p>Settings</p>
+                </button>
+
+                <button class="navbar-button" id="help-button">
+                    <ion-icon name="help-outline"></ion-icon>
+                    <p>Help</p>
+                </button>
+
+                <button class="navbar-button" id="admin-button">
+                    <ion-icon name="eye-outline"></ion-icon>
+                    <p>View Logs</p>
+                </button>
+
+            </div>
+
+            <!-- NAVBAR CHILD (LOGOUT BUTTON) -->
+            <div class="navbar-child-bottom">
+                <form action="/account/logout" method="POST">
+                    <button class='logout-button' type="submit">LOG OUT</button>
+                </form>
+            </div>
+
+         </div> <!-- NAVBAR PARENT CLOSING -->
+
+        <!-- MAIN BODY -->
+        <div class="content-parent">
+
+            <!-- Upload Content Window -->
+            <div class="content-window window-active" id="upload-window">
+                
+                <!-- Generic Header -->
+                <div class="content-header" id="upload-header">
+                    <h1>Upload Image</h1>
+                    <p>This is where you upload your images for analysis.</p>
+                </div>
+
+                <!-- API Container -->
+                <div class="api-container">
+
+                    <div class="api-description">
+                        <h1>User API</h1>
+                        <p>Copy this code to be used for automatic transmission</p>
+                    </div>
+                    <div class="api-text">
+                        <p>{{ user_api_key }}</p>
+                    </div>
+                </div>
+
+                <div class="upload-container">
+
+                    <div class="upload-description">
+                        <h1>Manually Upload Images</h1>
+                    </div>
+
+                    <!-- Container for uploading purposes-->
+
+                    <div class="upload-functions">
+                        <div class="upload-image">
+
+                            <form action="/upload-image" method="POST" enctype="multipart/form-data" class="upload-form" id="upload-form">
+                                <input id="image-upload" type="file" name="image" accept="image/*" required>
+                                <div class="upload-dropzone" id="upload-dropzone" tabindex="0" role="button" aria-label="Upload image">
+                                    <div class="dropzone-icon">
+                                        <ion-icon name="cloud-upload-outline"></ion-icon>
+                                    </div>
+                                    <h3>Drop image here</h3>
+                                    <p>or click to browse files</p>
+                                </div>
+
+                                <div class="file-meta">
+                                    <p class="file-meta-label">Selected file</p>
+                                    <p id="file-name" class="file-name">No image selected</p>
+                                    <p id="file-size" class="file-size">-</p>
+                                </div>
+
+                                <div class="upload-hints">
+                                    <span>Formats: JPG, PNG, WEBP</span>
+                                    <span>Maximum file size: 10 MB</span>
+                                </div>
+
+                                <div class="file-controls">
+                                    <button type="submit" class="upload-btn" id="upload-submit" disabled>Upload Image</button>
+                                    <button type="button" class="upload-btn secondary-upload-btn" id="clear-file">Clear</button>
+                                </div>
+                                <p id="upload-status" class="upload-status" data-state="idle" aria-live="polite">Select an image to enable upload.</p>
+                            </form>
+
+                        </div>
+
+                        <!-- COntainer for image preview -->
+                        <div class="image-preview">
+                            <img id="preview-image" src="" alt="Selected image preview">
+                            <div class="preview-placeholder" id="preview-placeholder">
+                                <ion-icon name="images-outline"></ion-icon>
+                                <p>Preview appears here after selecting an image</p>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+
+
+
+
+            <div class="content-window" id="results-window">
+
+                <div class="content-header" id="results-header">
+                    <h1>View Results</h1>
+                    <p>Open a result to view original image, heatzone, and farmer-friendly analysis.</p>
+                </div>
+
+                <div class="results-controls">
+                    <input id="result-search" type="text" placeholder="Search by Result ID...">
+                    <select id="result-band-filter">
+                        <option value="all">All Bands</option>
+                        <option value="healthy">Healthy</option>
+                        <option value="watch">Watch</option>
+                        <option value="stressed">Stressed</option>
+                        <option value="critical">Critical</option>
+                    </select>
+                    <select id="result-sort">
+                        <option value="newest">Newest First</option>
+                        <option value="oldest">Oldest First</option>
+                        <option value="score_desc">Highest Score</option>
+                        <option value="score_asc">Lowest Score</option>
+                    </select>
+                </div>
+
+                <div class="results-gallery">
+                    {% if entries and entries|length > 0 %}
+                        {% for entry in entries %}
+                        <article
+                            class="result-card"
+                            data-result-id="{{ entry.image_id }}"
+                            data-health-band="{{ entry.health_band|lower }}"
+                            data-health-score="{{ entry.health_score }}"
+                            data-created-at="{{ entry.created_at }}"
+                        >
+                            <img class="result-thumb" src="{{ entry.heatzone_url }}" alt="Result {{ entry.image_id }} preview">
+                            <div class="result-card-info">
+                                <h3>{{ entry.display_title or ('Result ' ~ entry.image_id) }}</h3>
+                                <p>{{ entry.summary }}</p>
+                                <p>{{ entry.created_at }} | Band: {{ entry.health_band|upper }}</p>
+                                <div class="result-actions">
+                                    <a class="result-open-link" href="/results/{{ entry.image_id }}">Open Result</a>
+                                    <a class="result-open-link secondary" href="/results/{{ entry.image_id }}/report.pdf">PDF</a>
+                                    <button type="button" class="result-delete-btn" data-result-id="{{ entry.image_id }}">Delete</button>
+                                </div>
+                            </div>
+                        </article>
+                        {% endfor %}
+                    {% else %}
+                    <div class="no-results-state">
+                        <h3>No Results</h3>
+                        <p>Upload and process an image to see analysis results here.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="content-window" id="settings-window">
+
+                <div class="content-header" id="upload-header">
+                    <h1>Settings</h1>
+                    <p>Change some website properties</p>
+                </div>
+
+                <div class="settings-panel">
+                    <div class="setting-group">
+                        <h2>Color Palette</h2>
+                        <p>Choose a visual preset for the dashboard.</p>
+                        <div class="theme-options" id="theme-options">
+                            <button class="theme-option" data-theme-value="default" type="button">Default</button>
+                            <button class="theme-option" data-theme-value="neon" type="button">Neon</button>
+                            <button class="theme-option" data-theme-value="minimalist" type="button">Minimalist</button>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <h2>Username</h2>
+                        <p>Update your display name for this browser session.</p>
+                        <form class="settings-form" id="username-form">
+                            <label for="username-input">Display Name</label>
+                            <input id="username-input" maxlength="24" placeholder="Enter username">
+                            <button type="submit" class="upload-btn">Save Username</button>
+                        </form>
+                    </div>
+
+                    <div class="setting-group">
+                        <h2>Accessibility</h2>
+                        <p>Reduce visual transitions and motion effects.</p>
+                        <label class="toggle-row" for="motion-toggle">
+                            <span>Enable UI animations</span>
+                            <input id="motion-toggle" type="checkbox" checked>
+                        </label>
+                    </div>
+
+                    <div class="setting-group">
+                        <h2>Reset</h2>
+                        <p>Restore all local settings to defaults.</p>
+                        <button id="reset-settings" type="button" class="upload-btn">Reset Settings</button>
+                    </div>
+                </div>
+
+
+
+            </div>
+            <div class="content-window" id="help-window">
+
+                <div class="content-header" id="help-header">
+                    <h1>Help</h1>
+                    <p>Find documentation and support resources here.</p>
+                </div>
+
+                <div class="help-guide">
+                    <section class="help-hero">
+                        <h2>Welcome to your farm image assistant</h2>
+                        <p>No tech skills needed. Follow the quick guide below and click the buttons to jump to each feature.</p>
+                    </section>
+
+                    <section class="help-tour" id="help-tour">
+                        <h3>Quick Interactive Tour</h3>
+                        <div class="tour-card">
+                            <p class="tour-step-label" id="tour-step-label">Step 1 of 4</p>
+                            <h4 id="tour-step-title">Upload your first image</h4>
+                            <p id="tour-step-body">Go to Upload Images, choose a farm image, and click Upload Image.</p>
+                            <div class="tour-actions">
+                                <button type="button" class="upload-btn secondary-upload-btn" id="tour-prev">Back</button>
+                                <button type="button" class="upload-btn" id="tour-next">Next</button>
+                                <button type="button" class="upload-btn help-jump-btn" data-target-window="upload">Take Me There</button>
+                            </div>
+                            <div class="tour-progress" id="tour-progress" aria-hidden="true"></div>
+                        </div>
+                    </section>
+
+                    <section class="help-features">
+                        <h3>What each tab does</h3>
+                        <div class="help-feature-grid">
+                            <article class="help-feature-card">
+                                <h4>Upload Images</h4>
+                                <p>Add your image manually and preview it before analysis.</p>
+                                <button type="button" class="upload-btn help-jump-btn" data-target-window="upload">Open Upload</button>
+                            </article>
+                            <article class="help-feature-card">
+                                <h4>View Results</h4>
+                                <p>See health insights, open reports, and download PDF copies.</p>
+                                <button type="button" class="upload-btn help-jump-btn" data-target-window="results">Open Results</button>
+                            </article>
+                            <article class="help-feature-card">
+                                <h4>Settings</h4>
+                                <p>Change colors, update name, and reduce motion if needed.</p>
+                                <button type="button" class="upload-btn help-jump-btn" data-target-window="settings">Open Settings</button>
+                            </article>
+                            <article class="help-feature-card">
+                                <h4>View Logs</h4>
+                                <p>For admins: check recent upload and system events.</p>
+                                <button type="button" class="upload-btn help-jump-btn" data-target-window="admin">Open Logs</button>
+                            </article>
+                        </div>
+                    </section>
+
+                    <section class="help-faq">
+                        <h3>Common Questions</h3>
+                        <details>
+                            <summary>I uploaded an image but can’t continue. What should I do?</summary>
+                            <p>Make sure your file is JPG, PNG, or WEBP and smaller than 10 MB. Then try again.</p>
+                        </details>
+                        <details>
+                            <summary>Where do I see the analysis after upload?</summary>
+                            <p>Open the View Results tab. Your newest item should appear at the top.</p>
+                        </details>
+                        <details>
+                            <summary>Can I keep a copy of the report?</summary>
+                            <p>Yes. In View Results, open your result and use the PDF button to download a copy.</p>
+                        </details>
+                    </section>
+                </div>
+
+            </div>
+            <div class="content-window" id="admin-window">
+
+                <div class="content-header" id="admin-header">
+                    <h1>View Logs</h1>
+                    <p>Examine system logs and administrative entries.</p>
+                </div>
+
+                <div class="logs-console">
+                    {% if upload_logs and upload_logs|length > 0 %}
+                    <ul class="logs-list">
+                        {% for log in upload_logs %}
+                        <li class="log-entry log-{{ log.level }}">
+                            <span class="log-time">[{{ log.timestamp }}]</span>
+                            <span class="log-message">{{ log.message }}</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="logs-empty">No logs yet.</p>
+                    {% endif %}
+                </div>
+
+            </div>
+        </div>
+
+
+
+        <!-- Javascript Links -->
+        <script src="{{ url_for('static', filename='js/navbar-button.js') }}" async defer></script>
+        <script src="{{ url_for('static', filename='js/results-tab.js') }}" async defer></script>
+        <script src="{{ url_for('static', filename='js/settings.js') }}" async defer></script>
+        <script src="{{ url_for('static', filename='js/user-privilege.js') }}" async defer></script>
+        <script src="{{ url_for('static', filename='js/image-preview.js') }}" async defer></script>
+        <script src="{{ url_for('static', filename='js/help-guide.js') }}" async defer></script>
+
+        <!-- Ionicons -->
+        <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
+        <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+    </body>
+</html>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+  <rect width="1200" height="800" fill="#335c67"/>
+  <rect x="120" y="120" width="960" height="560" fill="#4f8f9d"/>
+  <path d="M120 520 C300 460, 380 620, 580 530 C760 450, 930 590, 1080 520" fill="none" stroke="#d2f2f5" stroke-width="14"/>
+  <text x="60" y="70" fill="#ffffff" font-size="40" font-family="Arial">Plot B Original</text>
+</svg>

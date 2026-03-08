@@ -1,0 +1,117 @@
+
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>AI Model Evaluation Report</title>
+  <style>
+    body { background:#07120F; color:#E6F1EC; font-family:Inter,Segoe UI,Arial,sans-serif; margin:0; padding:24px; }
+    .wrap { max-width:1200px; margin:0 auto; }
+    .card { background:#0B1A14; border:1px solid #2C3F36; border-radius:14px; padding:16px; margin:0 0 14px 0; }
+    h1,h2,h3 { margin:0 0 10px 0; }
+    p,li { color:#CFE0D8; line-height:1.45; }
+    code { background:#10261E; padding:2px 6px; border-radius:6px; color:#8CFBD8; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    .kpi { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; }
+    .kpi .box { background:#10261E; border:1px solid #2C3F36; border-radius:10px; padding:10px; }
+    .big { font-size:22px; font-weight:800; color:#8CFBD8; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>NEW WEBSITE RGB Model - RGB AI Model Evaluation & Product Readiness</h1>
+      <p>Generated: 2026-03-08 18:09:27</p>
+      <div class="kpi">
+        <div class="box"><div>Samples</div><div class="big">5</div></div>
+        <div class="box"><div>Readiness Score</div><div class="big">0.0%</div></div>
+        <div class="box"><div>Mean Health Score</div><div class="big">0.371</div></div>
+        <div class="box"><div>Mean Confidence</div><div class="big">0.858</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>How The Model Is Computed (Transparent Processing)</h2>
+      <ol>
+        <li>Image RGB channels are summarized into <code>mean_red</code>, <code>mean_green</code>, <code>mean_blue</code>, and green coverage.</li>
+        <li>Vegetation proxies are computed: <code>VARI</code>, <code>GLI</code>, <code>NGRDI</code>, <code>ExG</code>.</li>
+        <li>Weighted score model combines normalized proxies: VARI(0.30), GLI(0.25), NGRDI(0.20), ExG(0.25).</li>
+        <li>Context penalties adjust score (low rainfall / extreme temperature).</li>
+        <li>Score is mapped to health bands: healthy/watch/stressed/critical.</li>
+        <li>Confidence is derived from proxy spread and bounded by model limits.</li>
+      </ol>
+      <p>Extended indices used for operations planning in this project: <code>TGI</code>, <code>MGRVI</code>, and <code>LAI proxy</code> plus canopy/stress/biomass/yield proxies.</p>
+    </div>
+
+    <div class="card">
+      <h2>Core Distribution & Relationship Metrics</h2>
+      <ul>
+        <li>Health score std-dev: <strong>0.000</strong></li>
+        <li>Confidence std-dev: <strong>0.000</strong></li>
+        <li>Correlation(score, green coverage): <strong>nan</strong></li>
+        <li>Correlation(score, stress zone): <strong>nan</strong></li>
+      </ul>
+      
+<svg width="760" height="320" viewBox="0 0 760 320" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="760" height="320" rx="14" fill="#0B1A14" stroke="#2C3F36"/>
+  <text x="20" y="30" fill="#F2FFF9" font-size="18" font-weight="700">Health Band Distribution</text>
+  <line x1="44" y1="276" x2="716" y2="276" stroke="#456157"/>
+  <line x1="44" y1="44" x2="44" y2="276" stroke="#456157"/>
+  <rect x="56.0" y="276.0" width="144.0" height="0.0" rx="6" fill="#1FA87A" /><text x="128.0" y="294.0" text-anchor="middle" fill="#BFCFC3" font-size="12">healthy</text><text x="128.0" y="270.0" text-anchor="middle" fill="#E6F1EC" font-size="11">0.00</text><rect x="224.0" y="276.0" width="144.0" height="0.0" rx="6" fill="#1FA87A" /><text x="296.0" y="294.0" text-anchor="middle" fill="#BFCFC3" font-size="12">watch</text><text x="296.0" y="270.0" text-anchor="middle" fill="#E6F1EC" font-size="11">0.00</text><rect x="392.0" y="64.0" width="144.0" height="212.0" rx="6" fill="#1FA87A" /><text x="464.0" y="294.0" text-anchor="middle" fill="#BFCFC3" font-size="12">stressed</text><text x="464.0" y="58.0" text-anchor="middle" fill="#E6F1EC" font-size="11">5.00</text><rect x="560.0" y="276.0" width="144.0" height="0.0" rx="6" fill="#1FA87A" /><text x="632.0" y="294.0" text-anchor="middle" fill="#BFCFC3" font-size="12">critical</text><text x="632.0" y="270.0" text-anchor="middle" fill="#E6F1EC" font-size="11">0.00</text>
+</svg>
+
+    </div>
+
+    <div class="grid">
+      <div class="card">
+<svg width="760" height="320" viewBox="0 0 760 320" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="760" height="320" rx="14" fill="#0B1A14" stroke="#2C3F36"/>
+  <text x="20" y="30" fill="#F2FFF9" font-size="18" font-weight="700">Health Score vs Green Coverage</text>
+  <line x1="52" y1="268" x2="708" y2="268" stroke="#456157"/>
+  <line x1="52" y1="52" x2="52" y2="268" stroke="#456157"/>
+  <circle cx="52.0" cy="268.0" r="4" fill="#4CD4A5" opacity="0.85"/><circle cx="52.0" cy="268.0" r="4" fill="#4CD4A5" opacity="0.85"/><circle cx="52.0" cy="268.0" r="4" fill="#4CD4A5" opacity="0.85"/><circle cx="52.0" cy="268.0" r="4" fill="#4CD4A5" opacity="0.85"/><circle cx="52.0" cy="268.0" r="4" fill="#4CD4A5" opacity="0.85"/>
+  <text x="380.0" y="310" text-anchor="middle" fill="#BFCFC3" font-size="12">Health Score</text>
+  <text x="16" y="160.0" text-anchor="middle" fill="#BFCFC3" font-size="12" transform="rotate(-90 16 160.0)">Green Coverage %</text>
+</svg>
+</div>
+      <div class="card">
+<svg width="760" height="320" viewBox="0 0 760 320" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="760" height="320" rx="14" fill="#0B1A14" stroke="#2C3F36"/>
+  <text x="20" y="30" fill="#F2FFF9" font-size="18" font-weight="700">Health Score vs Stress Zone</text>
+  <line x1="52" y1="268" x2="708" y2="268" stroke="#456157"/>
+  <line x1="52" y1="52" x2="52" y2="268" stroke="#456157"/>
+  <circle cx="52.0" cy="268.0" r="4" fill="#4CD4A5" opacity="0.85"/><circle cx="52.0" cy="268.0" r="4" fill="#4CD4A5" opacity="0.85"/><circle cx="52.0" cy="268.0" r="4" fill="#4CD4A5" opacity="0.85"/><circle cx="52.0" cy="268.0" r="4" fill="#4CD4A5" opacity="0.85"/><circle cx="52.0" cy="268.0" r="4" fill="#4CD4A5" opacity="0.85"/>
+  <text x="380.0" y="310" text-anchor="middle" fill="#BFCFC3" font-size="12">Health Score</text>
+  <text x="16" y="160.0" text-anchor="middle" fill="#BFCFC3" font-size="12" transform="rotate(-90 16 160.0)">Stress Zone %</text>
+</svg>
+</div>
+    </div>
+
+    <div class="card">
+      
+        <h2>Supervised Validation (Ground Truth Missing)</h2>
+        <p>No labels CSV provided. This report currently shows unsupervised/proxy evaluation only.
+        For product defense, add independent field labels and rerun with <code>--labels-csv</code>.</p>
+        
+    </div>
+
+    <div class="card">
+      <h2>Product Defense Checklist (Go/No-Go Gates)</h2>
+      <ul><li><strong>Sample count >= 100:</strong> FAIL</li><li><strong>All 4 health bands present:</strong> FAIL</li><li><strong>Score vs Green coverage positively correlated:</strong> FAIL</li><li><strong>Score vs Stress zone negatively correlated:</strong> FAIL</li></ul>
+      <p><strong>Interpretation:</strong> This model is operationally useful when it shows stable correlations, diverse band coverage,
+      and (when labels exist) acceptable supervised accuracy/F1. For production claims, keep a labeled validation set,
+      monitor drift monthly, and audit recommendations against field outcomes.</p>
+    </div>
+
+    <div class="card">
+      <h2>Risks, Limits, and Mitigations</h2>
+      <ul>
+        <li><strong>RGB-only limitation:</strong> This is a proxy to multispectral indices; mitigate by field scouting in critical zones.</li>
+        <li><strong>Lighting sensitivity:</strong> Enforce consistent capture time and weather windows.</li>
+        <li><strong>Domain shift:</strong> Different crop stages and camera settings can move score distributions.</li>
+        <li><strong>Recommendation safety:</strong> Treat recommendations as decision support, not autonomous farm control.</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>

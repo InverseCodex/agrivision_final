@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.py[cod]
+
+.venv/
+venv/
+
+tmp/
+data/results/
+analysis/evaluation_report/
+
+.tmp/
+.pytest_cache/
+.mypy_cache/

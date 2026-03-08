@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+  <rect width="1200" height="800" fill="#6d4c41"/>
+  <path d="M80 640 L260 320 L440 620 L620 300 L800 640 L1000 350 L1120 640 Z" fill="#b08968"/>
+  <text x="60" y="70" fill="#ffffff" font-size="40" font-family="Arial">Plot C Original</text>
+</svg>

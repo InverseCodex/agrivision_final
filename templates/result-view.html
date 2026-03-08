@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Result View</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/result-view.css') }}">
+</head>
+<body>
+    <header class="result-topbar">
+        <a href="/?window=results" class="back-link">Back to Results</a>
+        <h1 id="result-title">{{ personalization.title or ('Result ' ~ result.image_id) }}</h1>
+        <div class="topbar-actions">
+            <a class="pdf-btn" href="/results/{{ result.image_id }}/report.pdf">Download PDF</a>
+            <form action="/results/{{ result.image_id }}/rerun" method="POST">
+                <button class="rerun-btn" type="submit">Re-run Analysis</button>
+            </form>
+        </div>
+    </header>
+
+    <main class="result-page-layout">
+        <section class="viewer-panel">
+            <h2>Crop & Segment Analysis</h2>
+            <p class="crop-analysis-hint">Move the 4 corner points to shape your crop area, then analyze only that selected farm region.</p>
+            <div class="crop-analysis-layout mode-edit" id="crop-analysis-layout">
+                <div class="crop-draw-pane">
+                    <div class="crop-draw-toolbar">
+                        <button id="reset-crop-shape" class="viewer-btn" type="button">Reset Shape</button>
+                        <button id="clear-crop-results" class="viewer-btn" type="button">Clear Results</button>
+                        <button id="run-cropped-analysis" class="viewer-btn viewer-btn-active" type="button">Analyze Cropped Area</button>
+                    </div>
+                    <div class="crop-draw-frame" id="crop-draw-frame">
+                        <img id="crop-source-image" src="{{ result.original_url }}" alt="Original image for cropping">
+                        <canvas id="crop-overlay-canvas" aria-label="Crop shape canvas"></canvas>
+                    </div>
+                    <p id="crop-analysis-status" class="crop-analysis-status">Drag any corner point to adjust the crop shape, then click <strong>Analyze Cropped Area</strong>.</p>
+                </div>
+
+                <div class="crop-output-pane">
+                    <div class="crop-output-toolbar">
+                        <button id="show-crop-tool" class="viewer-btn" type="button">Adjust Crop</button>
+                    </div>
+                    <div class="crop-preview-grid">
+                        <div class="crop-preview-card">
+                            <h3>Cropped Heatzone</h3>
+                            <div class="segment-visual-frame" id="segment-visual-frame">
+                                <img id="cropped-heatzone-preview" alt="Cropped heatzone preview">
+                                <div id="segment-visual-grid" class="segment-visual-grid"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="segment-results">
+                        <h3>Segment Grid</h3>
+                        <p>Click a segment to view individual values from that exact section.</p>
+                        <div id="segment-grid-buttons" class="segment-grid-buttons"></div>
+                        <div id="segment-detail-card" class="segment-detail-card">No segment selected yet.</div>
+                        <div class="segment-metrics-grid">
+                            <div class="segment-metric segment-metric-wide"><span>Possible Issue</span><strong id="seg-issue">-</strong></div>
+                            <div class="segment-metric"><span>Health Band</span><strong id="seg-band">-</strong></div>
+                            <div class="segment-metric"><span>Score</span><strong id="seg-score">-</strong></div>
+                            <div class="segment-metric"><span>Green Coverage</span><strong id="seg-green">-</strong></div>
+                            <div class="segment-metric"><span>Stress Zone</span><strong id="seg-stress">-</strong></div>
+                            <div class="segment-metric"><span>Vigor</span><strong id="seg-vigor">-</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <aside class="description-panel">
+            <h2>Results and Recommendation</h2>
+            <div class="segment-results-summary">
+                <h3>Selected Segment Parameters</h3>
+                <div class="segment-summary-grid">
+                    <p><strong>Segment:</strong> <span id="rec-seg-id">-</span></p>
+                    <p><strong>Band:</strong> <span id="rec-seg-band">-</span></p>
+                    <p><strong>Score:</strong> <span id="rec-seg-score">-</span></p>
+                    <p><strong>Green:</strong> <span id="rec-seg-green">-</span></p>
+                    <p><strong>Stress:</strong> <span id="rec-seg-stress">-</span></p>
+                    <p><strong>Vigor:</strong> <span id="rec-seg-vigor">-</span></p>
+                </div>
+                <p class="segment-summary-issue"><strong>Possible Issue:</strong> <span id="rec-seg-issue">-</span></p>
+                <p class="segment-summary-reco"><strong>Recommendation:</strong> <span id="rec-seg-reco">-</span></p>
+            </div>
+            {% if analysis and analysis.report and analysis.report.recommendations %}
+            <div class="recommendation-summary">
+                <div class="summary-kpi">
+                    <span class="kpi-label">Action Progress</span>
+                    <p id="rec-progress">0 completed</p>
+                </div>
+                <div class="summary-kpi">
+                    <span class="kpi-label">Execution Style</span>
+                    <p>Field-ready task board</p>
+                </div>
+            </div>
+            <ul id="ai-recommendation-list" class="recommendation-board" data-result-id="{{ result.image_id }}">
+                {% for item in analysis.report.recommendations %}
+                <li class="rec-item" data-rec-id="{{ loop.index0 }}">
+                    <div class="rec-head">
+                        <span class="rec-priority">
+                            {% if loop.index <= 2 %}HIGH{% elif loop.index <= 4 %}MEDIUM{% else %}STANDARD{% endif %}
+                        </span>
+                        <span class="rec-status-chip">Pending</span>
+                    </div>
+                    <p class="rec-body">{{ item }}</p>
+                    <div class="rec-actions">
+                        <button type="button" class="rec-action-btn" data-action="toggle">Mark as Done</button>
+                    </div>
+                    <input type="checkbox" class="rec-check rec-check-hidden" data-rec-id="{{ loop.index0 }}" tabindex="-1" aria-hidden="true">
+                </li>
+                {% endfor %}
+            </ul>
+            <div class="rec-meta">
+                <textarea id="farmer-notes" placeholder="Add field notes about actions taken...">{{ personalization.farmer_notes or '' }}</textarea>
+                <button id="save-notes-btn" class="viewer-btn" type="button">Save Notes & Recommendation Actions</button>
+            </div>
+            {% else %}
+            <div class="placeholder-card">
+                <p>No recommendations available yet.</p>
+            </div>
+            {% endif %}
+        </aside>
+
+        <section class="personalization-panel">
+            <h2>Result Personalization</h2>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <h3>Custom Result Title</h3>
+                    <input id="custom-title-input" type="text" maxlength="120" placeholder="e.g. North Plot Morning Scan" value="{{ personalization.title or '' }}">
+                </div>
+                <div class="feature-card">
+                    <h3>Field Name</h3>
+                    <input id="field-name-input" type="text" maxlength="120" placeholder="e.g. Block A" value="{{ personalization.field_name or '' }}">
+                </div>
+                <div class="feature-card">
+                    <h3>Crop Type</h3>
+                    <input id="crop-type-input" type="text" maxlength="120" placeholder="e.g. Rice, Corn" value="{{ personalization.crop_type or '' }}">
+                </div>
+                <div class="feature-card">
+                    <h3>Quick Result Tag</h3>
+                    <p id="quick-tag-display">{{ analysis.report.model_result.health_band|upper if analysis and analysis.report and analysis.report.model_result else 'WATCH' }}</p>
+                </div>
+            </div>
+            <button id="save-personalization-btn" class="viewer-btn save-personalization-btn" type="button">Save Result Personalization</button>
+            <p id="personalization-status" class="personalization-status"></p>
+        </section>
+
+        <section class="features-panel">
+            <div class="features-panel-header">
+                <h2>Useful RGB Features</h2>
+                <button id="toggle-advanced-results" class="viewer-btn" type="button" aria-expanded="false" aria-controls="advanced-results-content">Advance Results</button>
+            </div>
+            <p class="advanced-results-hint">Advanced data is hidden for a cleaner view. Click <strong>Advance Results</strong> to open it.</p>
+            <div id="advanced-results-content" class="advanced-results-content">
+            {% if analysis %}
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <h3>Green Coverage</h3>
+                        <p id="adv-green-coverage">{{ analysis.farmer_features.green_coverage_pct }}%</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Stress Zone</h3>
+                        <p id="adv-stress-zone">{{ analysis.farmer_features.estimated_stress_zone_pct }}%</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Vigor Score</h3>
+                        <p id="adv-vigor-score">{{ analysis.farmer_features.vegetation_vigor_score }}/100</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Best Next Scan</h3>
+                        <p id="adv-next-scan">{{ analysis.farmer_features.recommended_scan_schedule }}</p>
+                    </div>
+                </div>
+                <div class="indices-row">
+                    <span id="adv-idx-vari">VARI: {{ analysis.rgb_indices.vari }}</span>
+                    <span id="adv-idx-gli">GLI: {{ analysis.rgb_indices.gli }}</span>
+                    <span id="adv-idx-ngrdi">NGRDI: {{ analysis.rgb_indices.ngrdi }}</span>
+                    <span id="adv-idx-exg">ExG: {{ analysis.rgb_indices.exg }}</span>
+                    <span id="adv-idx-tgi">TGI: {{ analysis.rgb_indices.tgi if analysis.rgb_indices and analysis.rgb_indices.tgi is defined else '-' }}</span>
+                    <span id="adv-idx-mgrvi">MGRVI: {{ analysis.rgb_indices.mgrvi if analysis.rgb_indices and analysis.rgb_indices.mgrvi is defined else '-' }}</span>
+                    <span id="adv-idx-lai">LAI Proxy: {{ analysis.rgb_indices.lai_proxy if analysis.rgb_indices and analysis.rgb_indices.lai_proxy is defined else '-' }}</span>
+                </div>
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <h3>Management Zone (Nitrogen & Water)</h3>
+                        <p id="adv-management-zone">{{ analysis.vegetation_indices_analysis.management_zone if analysis.vegetation_indices_analysis and analysis.vegetation_indices_analysis.management_zone is defined else '-' }}</p>
+                        <p id="adv-management-action">{{ analysis.vegetation_indices_analysis.management_action if analysis.vegetation_indices_analysis and analysis.vegetation_indices_analysis.management_action is defined else '-' }}</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Percent Canopy Cover</h3>
+                        <p id="adv-canopy-cover">{{ analysis.vegetation_indices_analysis.percent_canopy_cover if analysis.vegetation_indices_analysis and analysis.vegetation_indices_analysis.percent_canopy_cover is defined else '-' }}%</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Relative Biomass & Stand Uniformity</h3>
+                        <p id="adv-biomass">Biomass: {{ analysis.vegetation_indices_analysis.relative_biomass_score if analysis.vegetation_indices_analysis and analysis.vegetation_indices_analysis.relative_biomass_score is defined else '-' }}</p>
+                        <p id="adv-uniformity">Uniformity: {{ analysis.vegetation_indices_analysis.stand_uniformity_score if analysis.vegetation_indices_analysis and analysis.vegetation_indices_analysis.stand_uniformity_score is defined else '-' }}</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Relative Yield Potential</h3>
+                        <p id="adv-yield-potential">{{ analysis.vegetation_indices_analysis.relative_yield_potential_pct if analysis.vegetation_indices_analysis and analysis.vegetation_indices_analysis.relative_yield_potential_pct is defined else '-' }}%</p>
+                    </div>
+                </div>
+                <div class="indices-row">
+                    <a href="https://www.mdpi.com/2072-4292/18/3/528" target="_blank" rel="noopener noreferrer">Ref 1</a>
+                    <a href="https://www.researchgate.net/publication/374298955_Applying_RGB-Based_Vegetation_Indices_Obtained_from_UAS_Imagery_for_Monitoring_the_Rice_Crop_at_the_Field_Scale_A_Case_Study_in_Portugal" target="_blank" rel="noopener noreferrer">Ref 2</a>
+                    <a href="https://www.tandfonline.com/doi/full/10.1080/23754931.2020.1782974" target="_blank" rel="noopener noreferrer">Ref 3</a>
+                    <a href="https://www.mdpi.com/2071-1050/15/6/5487" target="_blank" rel="noopener noreferrer">Ref 4</a>
+                    <a href="https://www.mdpi.com/2077-0472/13/7/1292" target="_blank" rel="noopener noreferrer">Ref 5</a>
+                </div>
+            {% else %}
+                <p>No advanced RGB details available for this result yet.</p>
+            {% endif %}
+            </div>
+        </section>
+
+    </main>
+
+    <script id="initial-personalization" type="application/json">{{ personalization|tojson }}</script>
+    <script src="{{ url_for('static', filename='js/result-view.js') }}" defer></script>
+</body>
+</html>

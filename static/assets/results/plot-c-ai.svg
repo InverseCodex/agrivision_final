@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+  <defs>
+    <linearGradient id="g3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3a0ca3"/>
+      <stop offset="100%" stop-color="#f72585"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="800" fill="url(#g3)"/>
+  <path d="M100 600 Q280 350 450 600 T820 600 T1120 600" fill="none" stroke="#4cc9f0" stroke-width="22"/>
+  <circle cx="260" cy="360" r="80" fill="#80ffdb" opacity="0.6"/>
+  <circle cx="610" cy="300" r="105" fill="#ffd60a" opacity="0.5"/>
+  <circle cx="920" cy="390" r="85" fill="#ff8fab" opacity="0.6"/>
+  <text x="60" y="70" fill="#ffffff" font-size="40" font-family="Arial">Plot C AI Output</text>
+</svg>

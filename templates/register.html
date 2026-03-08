@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Register | AgriVision</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">
+</head>
+<body class="auth-page">
+    <main class="auth-shell">
+        <section class="auth-panel">
+            <p class="auth-kicker">Get Started</p>
+            <h1>Create Your Account</h1>
+            <p class="auth-subtitle">Set up your dashboard for crop monitoring and AI-assisted decisions.</p>
+            {% if error %}
+            <p class="auth-alert">{{ error }}</p>
+            {% endif %}
+
+            <form class="auth-form" action="/register" method="POST">
+                <label for="register-username">Username</label>
+                <input id="register-username" name="username" type="text" autocomplete="username" required>
+
+                <label for="register-password">Password</label>
+                <input id="register-password" name="password" type="password" autocomplete="new-password" required>
+
+                <button type="submit">Create Account</button>
+            </form>
+
+            <p class="auth-footer">
+                Already have an account?
+                <a href="/login">Sign in</a>
+            </p>
+        </section>
+    </main>
+</body>
+</html>

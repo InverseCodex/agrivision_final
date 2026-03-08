@@ -1,0 +1,46 @@
+/* FOR TABLETS */
+@media (max-width: 1024px) {
+
+.user-image {
+    font-size:clamp(2px, 1.5rem, 15px);
+    color:white;
+}
+
+.user-info{
+    gap:1rem;
+}
+.user-image-background {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    width: 1.6rem;
+    height: 1.5rem;
+
+    min-height: 8px;
+    min-height: 8px;
+
+    max-width: 30px;
+    max-height: 24px;
+
+    border-radius:0.1rem;
+    background: linear-gradient(
+        135deg,
+        #63D2B5 0%,
+        #3DBA9F 40%,
+        #1F8F78 100%
+    );
+}
+
+.user-name {
+    font-size:clamp(2px,1rem,12px);
+    height:25%;
+    margin:0;
+}
+.user-class {
+    font-size:clamp(1px,.5rem,6px);
+    height:10%;
+    margin:0;
+}
+    
+}

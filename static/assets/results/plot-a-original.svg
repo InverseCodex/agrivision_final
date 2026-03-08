@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+  <rect width="1200" height="800" fill="#315f2a"/>
+  <rect x="80" y="70" width="1040" height="660" fill="#4d8f3f" opacity="0.75"/>
+  <path d="M120 580 C280 430, 430 650, 640 520 C790 430, 920 590, 1080 470" fill="none" stroke="#d7efc7" stroke-width="18" opacity="0.6"/>
+  <text x="60" y="70" fill="#ffffff" font-size="40" font-family="Arial">Plot A Original</text>
+</svg>

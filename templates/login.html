@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Login | AgriVision</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">
+</head>
+<body class="auth-page">
+    <main class="auth-shell">
+        <section class="auth-panel">
+            <p class="auth-kicker">Welcome Back</p>
+            <h1>Login to AgriVision</h1>
+            <p class="auth-subtitle">Access vegetation indices, AI analysis history, and field insights.</p>
+            {% if error %}
+            <p class="auth-alert">{{ error }}</p>
+            {% endif %}
+            {% if success %}
+            <p class="auth-success">{{ success }}</p>
+            {% endif %}
+
+            <form class="auth-form" action="/login" method="POST">
+                <label for="login-username">Username</label>
+                <input id="login-username" name="username" type="text" autocomplete="username" required>
+
+                <label for="login-password">Password</label>
+                <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+
+                <button type="submit">Sign In</button>
+            </form>
+
+            <p class="auth-footer">
+                No account yet?
+                <a href="/register">Create one</a>
+            </p>
+        </section>
+    </main>
+</body>
+</html>
