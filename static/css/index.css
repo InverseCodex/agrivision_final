@@ -1388,7 +1388,12 @@ body.reduce-motion * {
     }
 
     #upload-window {
+        display: none;
         min-height: auto;
+    }
+
+    #upload-window.window-active {
+        display: grid;
     }
 
     .api-container,
