@@ -14,6 +14,8 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 from flask import Response
 from dotenv import load_dotenv
 from supabase import Client, create_client
+import numpy as np
+from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -24,6 +26,7 @@ load_dotenv(BASE_DIR / ".env")
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "replace-this-in-production")
+app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024  # 12 MB upload limit for stability on small instances.
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://sqjowujqqtljmwuizgqv.supabase.co")
 SUPABASE_KEY = (
@@ -42,6 +45,7 @@ SUPABASE_BUCKET_REPORTS = os.getenv("SUPABASE_BUCKET_REPORTS", "reports")
 supabase: Client | None = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_KEY else None
 TEMP_ROOT = BASE_DIR / "tmp"
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif", "bmp"}
+ANALYSIS_MAX_DIMENSION = 1600
 
 
 def current_user():
@@ -380,7 +384,6 @@ def create_heatzone_image(original_path: Path, output_path: Path) -> tuple[float
     except ModuleNotFoundError:
         try:
             import cv2
-            import numpy as np
         except ModuleNotFoundError as exc:
             raise RuntimeError("Image processing dependency is missing. Install Pillow or OpenCV to enable analysis.") from exc
 
@@ -418,32 +421,30 @@ def create_heatzone_image(original_path: Path, output_path: Path) -> tuple[float
 
     with Image.open(original_path) as im:
         rgb = im.convert("RGB")
-        pixels = list(rgb.getdata())
-        overlays = []
-        stress_pixels = 0
-        vigor_sum = 0.0
+        if max(rgb.size) > ANALYSIS_MAX_DIMENSION:
+            rgb.thumbnail((ANALYSIS_MAX_DIMENSION, ANALYSIS_MAX_DIMENSION), Image.Resampling.LANCZOS)
 
-        for r, g, b in pixels:
-            score = (g - r) / (r + g + b + 1e-6)
-            vigor_sum += score
-            if score < 0.02:
-                overlays.append((255, 64, 64))
-                stress_pixels += 1
-            elif score < 0.08:
-                overlays.append((255, 171, 64))
-            elif score < 0.15:
-                overlays.append((255, 227, 84))
-            else:
-                overlays.append((80, 214, 114))
+        rgb_np = np.asarray(rgb, dtype=np.float32)
+        r = rgb_np[:, :, 0]
+        g = rgb_np[:, :, 1]
+        b = rgb_np[:, :, 2]
+        score = (g - r) / (r + g + b + 1e-6)
 
-        overlay_img = Image.new("RGB", rgb.size)
-        overlay_img.putdata(overlays)
-        blended = Image.blend(rgb, overlay_img, alpha=0.45)
-        blended.save(output_path, format="PNG")
+        overlay = np.zeros_like(rgb_np, dtype=np.uint8)
+        mask_critical = score < 0.02
+        mask_low = (score >= 0.02) & (score < 0.08)
+        mask_watch = (score >= 0.08) & (score < 0.15)
+        mask_good = score >= 0.15
 
-        stress_ratio = stress_pixels / max(len(pixels), 1)
-        avg_vigor = vigor_sum / max(len(pixels), 1)
-        return stress_ratio, avg_vigor
+        overlay[mask_critical] = (255, 64, 64)
+        overlay[mask_low] = (255, 171, 64)
+        overlay[mask_watch] = (255, 227, 84)
+        overlay[mask_good] = (80, 214, 114)
+
+        blended_np = (0.55 * rgb_np + 0.45 * overlay).clip(0, 255).astype(np.uint8)
+        Image.fromarray(blended_np, mode="RGB").save(output_path, format="PNG")
+
+        return float(mask_critical.mean()), float(score.mean())
 
 
 def run_rgb_analysis(original_path: Path, user_id: str, image_id: str) -> dict[str, Any]:
@@ -452,7 +453,6 @@ def run_rgb_analysis(original_path: Path, user_id: str, image_id: str) -> dict[s
     except ModuleNotFoundError:
         try:
             import cv2
-            import numpy as np
         except ModuleNotFoundError as exc:
             raise RuntimeError("Image processing dependency is missing. Install Pillow or OpenCV.") from exc
 
@@ -471,18 +471,17 @@ def run_rgb_analysis(original_path: Path, user_id: str, image_id: str) -> dict[s
     else:
         with Image.open(original_path) as im:
             rgb = im.convert("RGB")
-            pixels = list(rgb.getdata())
-            pixel_count = max(len(pixels), 1)
-            sum_r = sum(p[0] for p in pixels)
-            sum_g = sum(p[1] for p in pixels)
-            sum_b = sum(p[2] for p in pixels)
+            if max(rgb.size) > ANALYSIS_MAX_DIMENSION:
+                rgb.thumbnail((ANALYSIS_MAX_DIMENSION, ANALYSIS_MAX_DIMENSION), Image.Resampling.LANCZOS)
 
-            mean_r = sum_r / pixel_count
-            mean_g = sum_g / pixel_count
-            mean_b = sum_b / pixel_count
-
-            green_pixels = sum(1 for r, g, b in pixels if g > r * 1.05 and g > b * 1.05)
-            green_coverage = green_pixels / pixel_count
+            rgb_np = np.asarray(rgb, dtype=np.float32)
+            r = rgb_np[:, :, 0]
+            g = rgb_np[:, :, 1]
+            b = rgb_np[:, :, 2]
+            mean_r = float(r.mean())
+            mean_g = float(g.mean())
+            mean_b = float(b.mean())
+            green_coverage = float(((g > r * 1.05) & (g > b * 1.05)).mean())
 
     snapshot = RGBSnapshot(
         mean_red=mean_r,
@@ -1633,6 +1632,16 @@ def register():
 
     supabase.table(SUPABASE_TABLE).insert(payload).execute()
     return redirect(url_for("login_page", success="Account created. You can now sign in."))
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_upload_too_large(_exc):
+    if require_auth():
+        user = current_user() or {}
+        user_id = user.get("user_id", "unknown-user")
+        add_upload_log(user_id, "Upload failed: file too large (max 12 MB).", "error")
+        return redirect(url_for("index"))
+    return redirect(url_for("login_page"))
 
 
 @app.post("/upload-image")
