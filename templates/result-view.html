@@ -30,6 +30,17 @@
                         <button id="clear-crop-results" class="viewer-btn" type="button">Clear Results</button>
                         <button id="run-cropped-analysis" class="viewer-btn viewer-btn-active" type="button">Analyze Cropped Area</button>
                     </div>
+                    <div class="mobile-crop-presets" id="mobile-crop-presets">
+                        <p>Quick crop (mobile):</p>
+                        <div class="mobile-crop-preset-buttons">
+                            <button class="viewer-btn mobile-preset-btn" type="button" data-crop-preset="full">Full</button>
+                            <button class="viewer-btn mobile-preset-btn" type="button" data-crop-preset="center">Center</button>
+                            <button class="viewer-btn mobile-preset-btn" type="button" data-crop-preset="top">Top</button>
+                            <button class="viewer-btn mobile-preset-btn" type="button" data-crop-preset="bottom">Bottom</button>
+                            <button class="viewer-btn mobile-preset-btn" type="button" data-crop-preset="left">Left</button>
+                            <button class="viewer-btn mobile-preset-btn" type="button" data-crop-preset="right">Right</button>
+                        </div>
+                    </div>
                     <div class="crop-draw-frame" id="crop-draw-frame">
                         <img id="crop-source-image" src="{{ result.original_url }}" alt="Original image for cropping">
                         <canvas id="crop-overlay-canvas" aria-label="Crop shape canvas"></canvas>

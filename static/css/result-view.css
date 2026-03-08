@@ -386,6 +386,33 @@ body {
     margin-bottom: 0.6rem;
 }
 
+.mobile-crop-presets {
+    display: none;
+    margin: 0 0 0.65rem;
+    padding: 0.55rem;
+    border: 1px solid #2C3F36;
+    border-radius: 0.7rem;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.mobile-crop-presets p {
+    margin: 0 0 0.45rem;
+    color: var(--muted);
+    font-size: 0.82rem;
+}
+
+.mobile-crop-preset-buttons {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.4rem;
+}
+
+.mobile-preset-btn {
+    min-height: 2.3rem;
+    font-size: 0.8rem;
+    padding: 0.4rem 0.45rem;
+}
+
 .crop-draw-frame {
     position: relative;
     border: 1px solid #2C3F36;
@@ -917,11 +944,19 @@ body[data-theme="minimalist"] .pdf-btn {
         grid-template-columns: 1fr;
     }
 
+    .mobile-crop-presets {
+        display: block;
+    }
+
     .segment-grid-buttons {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .segment-metrics-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    #crop-overlay-canvas {
+        touch-action: none;
     }
 }

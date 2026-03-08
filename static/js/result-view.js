@@ -21,6 +21,7 @@ const clearCropResultsButton = document.getElementById("clear-crop-results");
 const runCroppedAnalysisButton = document.getElementById("run-cropped-analysis");
 const showCropToolButton = document.getElementById("show-crop-tool");
 const cropAnalysisStatus = document.getElementById("crop-analysis-status");
+const mobileCropPresets = document.getElementById("mobile-crop-presets");
 
 const croppedOriginalPreview = document.getElementById("cropped-original-preview");
 const croppedHeatzonePreview = document.getElementById("cropped-heatzone-preview");
@@ -79,6 +80,10 @@ let latestSegments = [];
 
 let handlePoints = [];
 let activeHandleIndex = -1;
+
+function isCoarsePointer() {
+    return window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 780;
+}
 
 let personalizationState = {
     title: "",
@@ -225,11 +230,12 @@ function drawCropOverlay() {
     ctx.lineWidth = 2.2;
     ctx.stroke();
 
+    const handleRadius = isCoarsePointer() ? 12 : 8;
     handlePoints.forEach((point, index) => {
         const x = point.x * cropOverlayCanvas.width;
         const y = point.y * cropOverlayCanvas.height;
         ctx.beginPath();
-        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.arc(x, y, handleRadius, 0, Math.PI * 2);
         ctx.fillStyle = index === activeHandleIndex ? "#f6fffb" : "#8CFBD8";
         ctx.fill();
         ctx.strokeStyle = "#134d3a";
@@ -273,7 +279,54 @@ function findNearestHandleIndex(point) {
         }
     });
 
-    return bestDist <= 24 ? bestIdx : -1;
+    const threshold = isCoarsePointer() ? 44 : 24;
+    return bestDist <= threshold ? bestIdx : -1;
+}
+
+function applyCropPreset(preset) {
+    const presets = {
+        full: [
+            { x: 0.04, y: 0.04 },
+            { x: 0.96, y: 0.04 },
+            { x: 0.96, y: 0.96 },
+            { x: 0.04, y: 0.96 },
+        ],
+        center: [
+            { x: 0.18, y: 0.18 },
+            { x: 0.82, y: 0.18 },
+            { x: 0.82, y: 0.82 },
+            { x: 0.18, y: 0.82 },
+        ],
+        top: [
+            { x: 0.08, y: 0.06 },
+            { x: 0.92, y: 0.06 },
+            { x: 0.92, y: 0.54 },
+            { x: 0.08, y: 0.54 },
+        ],
+        bottom: [
+            { x: 0.08, y: 0.46 },
+            { x: 0.92, y: 0.46 },
+            { x: 0.92, y: 0.94 },
+            { x: 0.08, y: 0.94 },
+        ],
+        left: [
+            { x: 0.06, y: 0.08 },
+            { x: 0.54, y: 0.08 },
+            { x: 0.54, y: 0.92 },
+            { x: 0.06, y: 0.92 },
+        ],
+        right: [
+            { x: 0.46, y: 0.08 },
+            { x: 0.94, y: 0.08 },
+            { x: 0.94, y: 0.92 },
+            { x: 0.46, y: 0.92 },
+        ],
+    };
+    const points = presets[preset];
+    if (!points) return;
+    handlePoints = points.map((p) => ({ ...p }));
+    drawCropOverlay();
+    setCropStatus(`Preset applied: ${preset}. Tap Analyze Cropped Area.`, "success");
 }
 
 function renderSegmentButtons(segments, grid) {
@@ -545,7 +598,12 @@ if (cropSourceImage && cropOverlayCanvas) {
     cropOverlayCanvas.addEventListener("pointerdown", (event) => {
         const point = pointerToNormalizedPoint(event);
         if (!point) return;
-        const idx = findNearestHandleIndex(point);
+        let idx = findNearestHandleIndex(point);
+        if (idx < 0 && isCoarsePointer() && handlePoints.length) {
+            idx = handlePoints
+                .map((h, i) => ({ i, d: Math.hypot(point.x - h.x, point.y - h.y) }))
+                .sort((a, b) => a.d - b.d)[0]?.i ?? -1;
+        }
         if (idx < 0) return;
         activeHandleIndex = idx;
         cropOverlayCanvas.setPointerCapture(event.pointerId);
@@ -601,6 +659,14 @@ if (cropSourceImage && cropOverlayCanvas) {
     });
 
     runCroppedAnalysisButton?.addEventListener("click", runCroppedAnalysis);
+
+    mobileCropPresets?.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) return;
+        const preset = target.dataset.cropPreset;
+        if (!preset) return;
+        applyCropPreset(preset);
+    });
 }
 
 applyRecommendationChecksFromState();
