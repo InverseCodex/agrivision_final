@@ -50,6 +50,7 @@ def _recommendations_rgb(
     ngrdi: float,
     exg: float,
     green_coverage: float,
+    dry_coverage: float,
     context: FieldContext,
     band: str,
 ) -> List[str]:
@@ -58,12 +59,18 @@ def _recommendations_rgb(
     if band in {"stressed", "critical"}:
         recs.append("Inspect weak patches on-site within 24-48 hours.")
         recs.append("Check irrigation uniformity and soil moisture at root level.")
+    elif band == "mature":
+        recs.append("Crop appears near maturity; verify grain/panicle/pod stage before applying corrective inputs.")
+        recs.append("Plan harvest timing and inspect for lodging or uneven dry-down.")
 
     if vari < 0.05 or ngrdi < 0.05 or exg < 0.05:
         recs.append("Likely low canopy vigor: review nutrient and watering schedule.")
 
     if 0.0 <= green_coverage <= 1.0 and green_coverage < 0.45:
         recs.append("Plant cover appears sparse; consider replanting gaps if needed.")
+
+    if 0.0 <= dry_coverage <= 1.0 and dry_coverage >= 0.35 and green_coverage < 0.35:
+        recs.append("Canopy looks mature or drying down; confirm crop stage before treating this as acute stress.")
 
     if context.rainfall_last_7d_mm < 10:
         recs.append("Low recent rain: prioritize moisture checks this week.")
@@ -82,15 +89,23 @@ def rgb_to_vegetation_proxies(snapshot: RGBSnapshot) -> Tuple[float, float, floa
     RGB-only vegetation proxy indices (usable with DJI Mini 4 Pro RGB camera).
     Returns: VARI, GLI, NGRDI, ExG
     """
-    r = float(snapshot.mean_red)
-    g = float(snapshot.mean_green)
-    b = float(snapshot.mean_blue)
+    r = max(float(snapshot.mean_red), 0.0) / 255.0
+    g = max(float(snapshot.mean_green), 0.0) / 255.0
+    b = max(float(snapshot.mean_blue), 0.0) / 255.0
     eps = 1e-8
+
+    if "mini 4 pro" in snapshot.camera_model.strip().lower():
+        # DJI Mini 4 Pro files can vary with in-camera processing, so use normalized
+        # channel balance to make the RGB proxies less sensitive to exposure shifts.
+        total = r + g + b + eps
+        r = r / total
+        g = g / total
+        b = b / total
 
     vari = (g - r) / (g + r - b + eps)
     gli = (2 * g - r - b) / (2 * g + r + b + eps)
     ngrdi = (g - r) / (g + r + eps)
-    exg = (2 * g - r - b) / 255.0
+    exg = 2 * g - r - b
     return vari, gli, ngrdi, exg
 
 
@@ -132,12 +147,16 @@ def interpret_field_from_rgb(snapshot: RGBSnapshot, context: FieldContext) -> Fa
         exg=exg,
         context=context,
         green_coverage=snapshot.green_coverage,
+        dry_coverage=snapshot.dry_coverage,
+        camera_model=snapshot.camera_model,
     )
 
     if result.health_band == "healthy":
         summary = f"{context.crop_name}: RGB scan suggests healthy field condition."
     elif result.health_band == "watch":
         summary = f"{context.crop_name}: RGB scan shows moderate condition; monitor weak spots."
+    elif result.health_band == "mature":
+        summary = f"{context.crop_name}: RGB scan suggests the field is mature or near harvest."
     elif result.health_band == "stressed":
         summary = f"{context.crop_name}: RGB scan indicates stress signs; intervention is recommended."
     else:
@@ -159,6 +178,7 @@ def interpret_field_from_rgb(snapshot: RGBSnapshot, context: FieldContext) -> Fa
             ngrdi=ngrdi,
             exg=exg,
             green_coverage=snapshot.green_coverage,
+            dry_coverage=snapshot.dry_coverage,
             context=context,
             band=result.health_band,
         ),

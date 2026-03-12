@@ -9,7 +9,7 @@ This module provides a backend-only farm analysis workflow using vegetation indi
 - Also keeps a multispectral path (`NDVI`, `EVI`, `SAVI`, `GNDVI`, `NDRE`) if needed later.
 - Uses an AI-style judge (`VegetationJudgeModel`) to produce:
   - health score
-  - health band (`healthy`, `watch`, `stressed`, `critical`)
+  - health band (`healthy`, `mature`, `watch`, `stressed`, `critical`)
   - confidence
   - key findings
 - Converts model output into simple farmer-friendly language and action steps.

@@ -751,6 +751,10 @@ body {
     background: linear-gradient(90deg, #2fd688, #82ffd5);
 }
 
+.result-card[data-health-band="mature"]::after {
+    background: linear-gradient(90deg, #c7a35a, #e4c98f);
+}
+
 .result-card[data-health-band="watch"]::after {
     background: linear-gradient(90deg, #ffe07a, #ffd166);
 }

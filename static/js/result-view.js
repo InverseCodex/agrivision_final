@@ -1,5 +1,6 @@
 const featuresPanel = document.querySelector(".features-panel");
 const toggleAdvancedResultsButton = document.getElementById("toggle-advanced-results");
+const pdfDownloadLink = document.querySelector(".pdf-btn");
 
 const recommendationList = document.getElementById("ai-recommendation-list");
 const progressLabel = document.getElementById("rec-progress");
@@ -25,16 +26,17 @@ const mobileCropPresets = document.getElementById("mobile-crop-presets");
 
 const croppedOriginalPreview = document.getElementById("cropped-original-preview");
 const croppedHeatzonePreview = document.getElementById("cropped-heatzone-preview");
-const segmentGridButtons = document.getElementById("segment-grid-buttons");
 const segmentVisualGrid = document.getElementById("segment-visual-grid");
-const segmentDetailCard = document.getElementById("segment-detail-card");
-
-const segBand = document.getElementById("seg-band");
-const segScore = document.getElementById("seg-score");
-const segGreen = document.getElementById("seg-green");
-const segStress = document.getElementById("seg-stress");
-const segVigor = document.getElementById("seg-vigor");
-const segIssue = document.getElementById("seg-issue");
+const segmentSummaryTableBody = document.getElementById("segment-summary-table-body");
+const segDetailId = document.getElementById("seg-detail-id");
+const segDetailScore = document.getElementById("seg-detail-score");
+const segDetailVigor = document.getElementById("seg-detail-vigor");
+const segDetailCanopy = document.getElementById("seg-detail-canopy");
+const segDetailBiomass = document.getElementById("seg-detail-biomass");
+const segDetailUniformity = document.getElementById("seg-detail-uniformity");
+const segDetailGreen = document.getElementById("seg-detail-green");
+const segDetailStress = document.getElementById("seg-detail-stress");
+const advSegmentSummaryTableBody = document.getElementById("adv-segment-summary-table-body");
 const advGreenCoverage = document.getElementById("adv-green-coverage");
 const advStressZone = document.getElementById("adv-stress-zone");
 const advVigorScore = document.getElementById("adv-vigor-score");
@@ -53,11 +55,6 @@ const advBiomass = document.getElementById("adv-biomass");
 const advUniformity = document.getElementById("adv-uniformity");
 const advYieldPotential = document.getElementById("adv-yield-potential");
 const recSegId = document.getElementById("rec-seg-id");
-const recSegBand = document.getElementById("rec-seg-band");
-const recSegScore = document.getElementById("rec-seg-score");
-const recSegGreen = document.getElementById("rec-seg-green");
-const recSegStress = document.getElementById("rec-seg-stress");
-const recSegVigor = document.getElementById("rec-seg-vigor");
 const recSegIssue = document.getElementById("rec-seg-issue");
 const recSegReco = document.getElementById("rec-seg-reco");
 
@@ -94,6 +91,14 @@ let personalizationState = {
     flags: [],
 };
 
+const SEGMENT_THRESHOLDS = {
+    health_score: 60,
+    vegetation_vigor_score: 60,
+    canopy_cover_pct: 40,
+    relative_biomass_score: 45,
+    stand_uniformity_score: 55,
+};
+
 try {
     const parsed = JSON.parse(initialPersonalizationEl?.textContent || "{}");
     personalizationState = { ...personalizationState, ...parsed };
@@ -118,6 +123,89 @@ function sanitizeLabel(text) {
     return String(text || "").trim().slice(0, 120);
 }
 
+function formatScore(value, suffix = "") {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return "-";
+    }
+    return `${value}${suffix}`;
+}
+
+function classifySegmentMetric(segment, key) {
+    if (!segment || segment.empty) {
+        return "N/A";
+    }
+    const value = Number(segment[key]);
+    const threshold = Number(SEGMENT_THRESHOLDS[key]);
+    if (Number.isNaN(value) || Number.isNaN(threshold)) {
+        return "N/A";
+    }
+
+    if (value <= threshold * 0.75) return "Very Low";
+    if (value <= threshold * 0.95) return "Low";
+    if (value <= threshold * 1.1) return "Normal";
+    if (value <= threshold * 1.25) return "High";
+    return "Very High";
+}
+
+function getMetricSeverity(segment, key) {
+    if (!segment || segment.empty) {
+        return "na";
+    }
+    const value = Number(segment[key]);
+    const threshold = Number(SEGMENT_THRESHOLDS[key]);
+    if (Number.isNaN(value) || Number.isNaN(threshold)) {
+        return "na";
+    }
+    if (value <= threshold * 0.75) return "very-low";
+    if (value <= threshold * 0.95) return "low";
+    if (value <= threshold * 1.1) return "normal";
+    if (value <= threshold * 1.25) return "high";
+    return "very-high";
+}
+
+function getAdaptiveSegmentRecommendation(segment) {
+    if (!segment || segment.empty) {
+        return segment?.recommendation || "-";
+    }
+
+    const checks = [
+        {
+            label: "health score",
+            below: Number(segment.health_score) < SEGMENT_THRESHOLDS.health_score,
+            message: "Health is low in this segment. Prioritize a field check and confirm whether crop stress is spreading.",
+        },
+        {
+            label: "vigor",
+            below: Number(segment.vegetation_vigor_score) < SEGMENT_THRESHOLDS.vegetation_vigor_score,
+            message: "Vigor is low in this segment. Review nutrient delivery and irrigation timing to help plant growth recover.",
+        },
+        {
+            label: "canopy",
+            below: Number(segment.canopy_cover_pct) < SEGMENT_THRESHOLDS.canopy_cover_pct,
+            message: "Canopy is low in this segment. Inspect for sparse stand, delayed growth, or missing plants in this section.",
+        },
+        {
+            label: "biomass",
+            below: Number(segment.relative_biomass_score) < SEGMENT_THRESHOLDS.relative_biomass_score,
+            message: "Biomass is low in this segment. Check whether plants are undersized and adjust feeding or water support as needed.",
+        },
+        {
+            label: "uniformity",
+            below: Number(segment.stand_uniformity_score) < SEGMENT_THRESHOLDS.stand_uniformity_score,
+            message: "Uniformity is low in this segment. Compare weak and strong patches for irrigation inconsistency, pests, or uneven emergence.",
+        },
+    ];
+
+    const flagged = checks.filter((item) => item.below);
+    if (!flagged.length) {
+        return segment.recommendation || "All tracked segment metrics are above threshold. Maintain the current program and monitor on the next scan.";
+    }
+    if (flagged.length === 1) {
+        return flagged[0].message;
+    }
+    return `${flagged[0].message} Also monitor ${flagged.slice(1).map((item) => item.label).join(", ")} because they are also below threshold in this segment.`;
+}
+
 function setCropStatus(message, state = "idle") {
     if (!cropAnalysisStatus) return;
     cropAnalysisStatus.textContent = message;
@@ -138,41 +226,29 @@ function setCropViewMode(mode) {
 }
 
 function setSegmentMetricValues(segment) {
-    if (!segBand || !segScore || !segGreen || !segStress || !segVigor || !segIssue) {
-        return;
-    }
     if (!segment || segment.empty) {
-        segIssue.textContent = segment?.possible_issue || "-";
-        segBand.textContent = "-";
-        segScore.textContent = "-";
-        segGreen.textContent = "-";
-        segStress.textContent = "-";
-        segVigor.textContent = "-";
         if (recSegId) recSegId.textContent = segment?.segment_id || "-";
-        if (recSegBand) recSegBand.textContent = "-";
-        if (recSegScore) recSegScore.textContent = "-";
-        if (recSegGreen) recSegGreen.textContent = "-";
-        if (recSegStress) recSegStress.textContent = "-";
-        if (recSegVigor) recSegVigor.textContent = "-";
-        if (recSegIssue) recSegIssue.textContent = segment?.possible_issue || "-";
-        if (recSegReco) recSegReco.textContent = segment?.recommendation || "-";
+        if (recSegReco) recSegReco.textContent = getAdaptiveSegmentRecommendation(segment);
+        if (segDetailId) segDetailId.textContent = segment?.segment_id || "-";
+        if (segDetailScore) segDetailScore.textContent = "-";
+        if (segDetailVigor) segDetailVigor.textContent = "-";
+        if (segDetailCanopy) segDetailCanopy.textContent = "-";
+        if (segDetailBiomass) segDetailBiomass.textContent = "-";
+        if (segDetailUniformity) segDetailUniformity.textContent = "-";
+        if (segDetailGreen) segDetailGreen.textContent = "-";
+        if (segDetailStress) segDetailStress.textContent = "-";
         return;
     }
-    segIssue.textContent = segment.possible_issue || "-";
-    segBand.textContent = (segment.health_band || "watch").toUpperCase();
-    segScore.textContent = `${segment.health_score}`;
-    segGreen.textContent = `${segment.green_coverage_pct}%`;
-    segStress.textContent = `${segment.estimated_stress_zone_pct}%`;
-    segVigor.textContent = `${segment.vegetation_vigor_score}`;
-
     if (recSegId) recSegId.textContent = segment.segment_id || "-";
-    if (recSegBand) recSegBand.textContent = (segment.health_band || "-").toUpperCase();
-    if (recSegScore) recSegScore.textContent = `${segment.health_score ?? "-"}`;
-    if (recSegGreen) recSegGreen.textContent = `${segment.green_coverage_pct ?? "-"}%`;
-    if (recSegStress) recSegStress.textContent = `${segment.estimated_stress_zone_pct ?? "-"}%`;
-    if (recSegVigor) recSegVigor.textContent = `${segment.vegetation_vigor_score ?? "-"}`;
-    if (recSegIssue) recSegIssue.textContent = segment.possible_issue || "-";
-    if (recSegReco) recSegReco.textContent = segment.recommendation || "-";
+    if (recSegReco) recSegReco.textContent = getAdaptiveSegmentRecommendation(segment);
+    if (segDetailId) segDetailId.textContent = segment.segment_id || "-";
+    if (segDetailScore) segDetailScore.textContent = formatScore(segment.health_score);
+    if (segDetailVigor) segDetailVigor.textContent = formatScore(segment.vegetation_vigor_score);
+    if (segDetailCanopy) segDetailCanopy.textContent = formatScore(segment.canopy_cover_pct, "%");
+    if (segDetailBiomass) segDetailBiomass.textContent = formatScore(segment.relative_biomass_score);
+    if (segDetailUniformity) segDetailUniformity.textContent = formatScore(segment.stand_uniformity_score);
+    if (segDetailGreen) segDetailGreen.textContent = formatScore(segment.green_coverage_pct, "%");
+    if (segDetailStress) segDetailStress.textContent = formatScore(segment.estimated_stress_zone_pct, "%");
 }
 
 function setAdvancedPanelFromSegment(segment) {
@@ -330,13 +406,18 @@ function applyCropPreset(preset) {
 }
 
 function renderSegmentButtons(segments, grid) {
-    if (!segmentGridButtons) return;
-    segmentGridButtons.innerHTML = "";
-    if (segmentVisualGrid) segmentVisualGrid.innerHTML = "";
+    if (segmentSummaryTableBody) {
+        segmentSummaryTableBody.innerHTML = "";
+    }
+    if (advSegmentSummaryTableBody) {
+        advSegmentSummaryTableBody.innerHTML = "";
+    }
+    if (segmentVisualGrid) {
+        segmentVisualGrid.innerHTML = "";
+    }
 
     segmentRows = Number(grid?.rows || 4);
     segmentCols = Number(grid?.cols || 4);
-    segmentGridButtons.style.gridTemplateColumns = `repeat(${segmentCols}, minmax(0, 1fr))`;
 
     if (segmentVisualGrid) {
         segmentVisualGrid.style.gridTemplateColumns = `repeat(${segmentCols}, minmax(0, 1fr))`;
@@ -349,57 +430,106 @@ function renderSegmentButtons(segments, grid) {
         if (!segment) return;
         activeSegmentId = segmentId;
 
-        segmentGridButtons.querySelectorAll(".segment-btn").forEach((node) => {
+        document.querySelectorAll(".segment-summary-row").forEach((node) => {
             node.classList.toggle("active", node.dataset.segmentId === segmentId);
         });
-        segmentVisualGrid?.querySelectorAll(".segment-visual-cell").forEach((node) => {
+        document.querySelectorAll(".segment-visual-cell").forEach((node) => {
             node.classList.toggle("active", node.dataset.segmentId === segmentId);
         });
-
-        if (segmentDetailCard) {
-            if (segment.empty) {
-                segmentDetailCard.textContent = `${segment.segment_id}: no cropped pixels detected in this cell.`;
-            } else {
-                segmentDetailCard.textContent =
-                    `${segment.segment_id} | Band: ${(segment.health_band || "watch").toUpperCase()} | ` +
-                    `Score: ${segment.health_score} | ` +
-                    `Green: ${segment.green_coverage_pct}% | Stress: ${segment.estimated_stress_zone_pct}% | ` +
-                    `Vigor: ${segment.vegetation_vigor_score} | Possible issue: ${segment.possible_issue || "-"} | ` +
-                    `Recommendation: ${segment.recommendation || "-"}`;
-            }
-        }
 
         setSegmentMetricValues(segment);
-        setAdvancedPanelFromSegment(segment);
     };
 
-    segments.forEach((segment, idx) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = `segment-btn band-${segment.health_band || "na"}`;
-        btn.dataset.segmentId = segment.segment_id;
-        btn.textContent = segment.segment_id;
-        btn.addEventListener("click", () => selectSegment(segment.segment_id));
-        segmentGridButtons.appendChild(btn);
+    const buildSummaryRow = (segment, mode = "summary") => {
+        const row = document.createElement("tr");
+        row.className = "segment-summary-row";
+        row.dataset.segmentId = segment.segment_id;
+        if (segment.empty) {
+            row.classList.add("segment-summary-row-empty");
+        } else {
+            row.tabIndex = 0;
+            row.addEventListener("click", () => selectSegment(segment.segment_id));
+            row.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    selectSegment(segment.segment_id);
+                }
+            });
+        }
 
+        const values = [
+            segment.empty ? `${segment.segment_id} (N/A)` : segment.segment_id,
+            mode === "summary" ? classifySegmentMetric(segment, "health_score") : formatScore(segment.health_score),
+            mode === "summary" ? classifySegmentMetric(segment, "vegetation_vigor_score") : formatScore(segment.vegetation_vigor_score),
+            mode === "summary" ? classifySegmentMetric(segment, "canopy_cover_pct") : formatScore(segment.canopy_cover_pct, "%"),
+            mode === "summary" ? classifySegmentMetric(segment, "relative_biomass_score") : formatScore(segment.relative_biomass_score),
+            mode === "summary" ? classifySegmentMetric(segment, "stand_uniformity_score") : formatScore(segment.stand_uniformity_score),
+        ];
+
+        const severityKeys = [null, "health_score", "vegetation_vigor_score", "canopy_cover_pct", "relative_biomass_score", "stand_uniformity_score"];
+        values.forEach((value, index) => {
+            const cell = document.createElement("td");
+            cell.textContent = value;
+            if (mode === "summary" && severityKeys[index]) {
+                cell.classList.add(`metric-${getMetricSeverity(segment, severityKeys[index])}`);
+            }
+            row.appendChild(cell);
+        });
+
+        return row;
+    };
+
+    segments.forEach((segment) => {
         if (segmentVisualGrid) {
             const cell = document.createElement("button");
             cell.type = "button";
             cell.className = `segment-visual-cell band-${segment.health_band || "na"}`;
             cell.dataset.segmentId = segment.segment_id;
-            cell.textContent = segment.segment_id;
-            cell.title = `Open ${segment.segment_id} results`;
-            cell.addEventListener("click", () => selectSegment(segment.segment_id));
+            cell.textContent = segment.empty ? "" : segment.segment_id;
+            if (segment.empty) {
+                cell.classList.add("segment-visual-cell-empty");
+                cell.title = `${segment.segment_id}: outside selected crop area`;
+                cell.disabled = true;
+            } else {
+                cell.title = segment.segment_id;
+                cell.addEventListener("click", () => selectSegment(segment.segment_id));
+            }
             segmentVisualGrid.appendChild(cell);
         }
 
-        if (idx === 0) {
+        if (segmentSummaryTableBody) {
+            segmentSummaryTableBody.appendChild(buildSummaryRow(segment, "summary"));
+        }
+        if (advSegmentSummaryTableBody) {
+            advSegmentSummaryTableBody.appendChild(buildSummaryRow(segment, "detailed"));
+        }
+
+        if (!segment.empty && !activeSegmentId) {
             activeSegmentId = segment.segment_id;
         }
     });
 
+    if (!segments.length && segmentSummaryTableBody) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 6;
+        cell.textContent = "No analyzable segment in the selected crop area.";
+        row.appendChild(cell);
+        segmentSummaryTableBody.appendChild(row);
+    }
+    if (!segments.length && advSegmentSummaryTableBody) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 6;
+        cell.textContent = "No segment results yet.";
+        row.appendChild(cell);
+        advSegmentSummaryTableBody.appendChild(row);
+    }
+
     if (activeSegmentId) {
         selectSegment(activeSegmentId);
+    } else {
+        setSegmentMetricValues(null);
     }
 }
 
@@ -441,7 +571,7 @@ async function runCroppedAnalysis() {
 
         latestSegments = Array.isArray(payload.segments) ? payload.segments : [];
         renderSegmentButtons(latestSegments, payload.grid || { rows: 4, cols: 4 });
-        setCropStatus("Done. Click any segment cell to see that segment's own values.", "success");
+        setCropStatus("Done. Review the segment table below and select a row to update the recommendation.", "success");
         setCropViewMode("results");
     } catch (error) {
         setCropStatus(String(error.message || "Cropped analysis failed."), "error");
@@ -582,6 +712,12 @@ toggleAdvancedResultsButton?.addEventListener("click", () => {
     toggleAdvancedResultsButton.textContent = visible ? "Hide Advance Results" : "Advance Results";
 });
 
+if (pdfDownloadLink) {
+    const pdfUrl = new URL(pdfDownloadLink.href, window.location.origin);
+    pdfUrl.searchParams.set("theme", savedTheme);
+    pdfDownloadLink.href = pdfUrl.pathname + pdfUrl.search;
+}
+
 if (cropSourceImage && cropOverlayCanvas) {
     if (cropSourceImage.complete) {
         resizeCropCanvas();
@@ -643,9 +779,13 @@ if (cropSourceImage && cropOverlayCanvas) {
     clearCropResultsButton?.addEventListener("click", () => {
         latestSegments = [];
         activeSegmentId = "";
-        if (segmentGridButtons) segmentGridButtons.innerHTML = "";
+        if (segmentSummaryTableBody) {
+            segmentSummaryTableBody.innerHTML = '<tr><td colspan="6">No segment results yet.</td></tr>';
+        }
+        if (advSegmentSummaryTableBody) {
+            advSegmentSummaryTableBody.innerHTML = '<tr><td colspan="6">No segment results yet.</td></tr>';
+        }
         if (segmentVisualGrid) segmentVisualGrid.innerHTML = "";
-        if (segmentDetailCard) segmentDetailCard.textContent = "No segment selected yet.";
         if (croppedOriginalPreview) croppedOriginalPreview.removeAttribute("src");
         if (croppedHeatzonePreview) croppedHeatzonePreview.removeAttribute("src");
         setSegmentMetricValues(null);

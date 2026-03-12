@@ -61,19 +61,33 @@
                             </div>
                         </div>
                     </div>
-                    <div class="segment-results">
-                        <h3>Segment Grid</h3>
-                        <p>Click a segment to view individual values from that exact section.</p>
-                        <div id="segment-grid-buttons" class="segment-grid-buttons"></div>
-                        <div id="segment-detail-card" class="segment-detail-card">No segment selected yet.</div>
-                        <div class="segment-metrics-grid">
-                            <div class="segment-metric segment-metric-wide"><span>Possible Issue</span><strong id="seg-issue">-</strong></div>
-                            <div class="segment-metric"><span>Health Band</span><strong id="seg-band">-</strong></div>
-                            <div class="segment-metric"><span>Score</span><strong id="seg-score">-</strong></div>
-                            <div class="segment-metric"><span>Green Coverage</span><strong id="seg-green">-</strong></div>
-                            <div class="segment-metric"><span>Stress Zone</span><strong id="seg-stress">-</strong></div>
-                            <div class="segment-metric"><span>Vigor</span><strong id="seg-vigor">-</strong></div>
+                    <div class="segment-results-summary crop-recommendation-card">
+                        <h3>Specific Segment Recommendation</h3>
+                        <p class="segment-summary-selected"><strong>Selected Segment:</strong> <span id="rec-seg-id">-</span></p>
+                        <p class="segment-summary-reco"><strong>Recommendation:</strong> <span id="rec-seg-reco">-</span></p>
+                    </div>
+                    <div class="embedded-personalization">
+                        <h3>Result Personalization</h3>
+                        <div class="feature-grid">
+                            <div class="feature-card">
+                                <h3>Custom Result Title</h3>
+                                <input id="custom-title-input" type="text" maxlength="120" placeholder="e.g. North Plot Morning Scan" value="{{ personalization.title or '' }}">
+                            </div>
+                            <div class="feature-card">
+                                <h3>Field Name</h3>
+                                <input id="field-name-input" type="text" maxlength="120" placeholder="e.g. Block A" value="{{ personalization.field_name or '' }}">
+                            </div>
+                            <div class="feature-card">
+                                <h3>Crop Type</h3>
+                                <input id="crop-type-input" type="text" maxlength="120" placeholder="e.g. Rice, Corn" value="{{ personalization.crop_type or '' }}">
+                            </div>
+                            <div class="feature-card">
+                                <h3>Quick Result Tag</h3>
+                                <p id="quick-tag-display">{{ analysis.report.model_result.health_band|upper if analysis and analysis.report and analysis.report.model_result else 'WATCH' }}</p>
+                            </div>
                         </div>
+                        <button id="save-personalization-btn" class="viewer-btn save-personalization-btn" type="button">Save Result Personalization</button>
+                        <p id="personalization-status" class="personalization-status"></p>
                     </div>
                 </div>
             </div>
@@ -81,19 +95,6 @@
 
         <aside class="description-panel">
             <h2>Results and Recommendation</h2>
-            <div class="segment-results-summary">
-                <h3>Selected Segment Parameters</h3>
-                <div class="segment-summary-grid">
-                    <p><strong>Segment:</strong> <span id="rec-seg-id">-</span></p>
-                    <p><strong>Band:</strong> <span id="rec-seg-band">-</span></p>
-                    <p><strong>Score:</strong> <span id="rec-seg-score">-</span></p>
-                    <p><strong>Green:</strong> <span id="rec-seg-green">-</span></p>
-                    <p><strong>Stress:</strong> <span id="rec-seg-stress">-</span></p>
-                    <p><strong>Vigor:</strong> <span id="rec-seg-vigor">-</span></p>
-                </div>
-                <p class="segment-summary-issue"><strong>Possible Issue:</strong> <span id="rec-seg-issue">-</span></p>
-                <p class="segment-summary-reco"><strong>Recommendation:</strong> <span id="rec-seg-reco">-</span></p>
-            </div>
             {% if analysis and analysis.report and analysis.report.recommendations %}
             <div class="recommendation-summary">
                 <div class="summary-kpi">
@@ -133,30 +134,6 @@
             {% endif %}
         </aside>
 
-        <section class="personalization-panel">
-            <h2>Result Personalization</h2>
-            <div class="feature-grid">
-                <div class="feature-card">
-                    <h3>Custom Result Title</h3>
-                    <input id="custom-title-input" type="text" maxlength="120" placeholder="e.g. North Plot Morning Scan" value="{{ personalization.title or '' }}">
-                </div>
-                <div class="feature-card">
-                    <h3>Field Name</h3>
-                    <input id="field-name-input" type="text" maxlength="120" placeholder="e.g. Block A" value="{{ personalization.field_name or '' }}">
-                </div>
-                <div class="feature-card">
-                    <h3>Crop Type</h3>
-                    <input id="crop-type-input" type="text" maxlength="120" placeholder="e.g. Rice, Corn" value="{{ personalization.crop_type or '' }}">
-                </div>
-                <div class="feature-card">
-                    <h3>Quick Result Tag</h3>
-                    <p id="quick-tag-display">{{ analysis.report.model_result.health_band|upper if analysis and analysis.report and analysis.report.model_result else 'WATCH' }}</p>
-                </div>
-            </div>
-            <button id="save-personalization-btn" class="viewer-btn save-personalization-btn" type="button">Save Result Personalization</button>
-            <p id="personalization-status" class="personalization-status"></p>
-        </section>
-
         <section class="features-panel">
             <div class="features-panel-header">
                 <h2>Useful RGB Features</h2>
@@ -191,6 +168,65 @@
                     <span id="adv-idx-tgi">TGI: {{ analysis.rgb_indices.tgi if analysis.rgb_indices and analysis.rgb_indices.tgi is defined else '-' }}</span>
                     <span id="adv-idx-mgrvi">MGRVI: {{ analysis.rgb_indices.mgrvi if analysis.rgb_indices and analysis.rgb_indices.mgrvi is defined else '-' }}</span>
                     <span id="adv-idx-lai">LAI Proxy: {{ analysis.rgb_indices.lai_proxy if analysis.rgb_indices and analysis.rgb_indices.lai_proxy is defined else '-' }}</span>
+                </div>
+                <div class="feature-card segment-advanced-card">
+                    <h3>All Segment Parameters</h3>
+                    <p class="segment-results-caption">Tap a segment in the image or table to sync the recommendation and detailed values.</p>
+                    <div class="segment-results-table-wrap">
+                        <table class="segment-results-table">
+                            <thead>
+                                <tr>
+                                    <th>Segment</th>
+                                    <th>Health</th>
+                                    <th>Vigor</th>
+                                    <th>Canopy</th>
+                                    <th>Biomass</th>
+                                    <th>Uniformity</th>
+                                </tr>
+                            </thead>
+                            <tbody id="segment-summary-table-body">
+                                <tr>
+                                    <td colspan="6">No segment results yet.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="feature-card segment-advanced-card">
+                    <h3>Specific Segment Parameters</h3>
+                    <p class="segment-results-caption">Numeric values for the currently selected segment.</p>
+                    <div class="segment-metrics-grid">
+                        <div class="segment-metric"><span>Segment</span><strong id="seg-detail-id">-</strong></div>
+                        <div class="segment-metric"><span>Health Score</span><strong id="seg-detail-score">-</strong></div>
+                        <div class="segment-metric"><span>Vigor</span><strong id="seg-detail-vigor">-</strong></div>
+                        <div class="segment-metric"><span>Canopy</span><strong id="seg-detail-canopy">-</strong></div>
+                        <div class="segment-metric"><span>Biomass</span><strong id="seg-detail-biomass">-</strong></div>
+                        <div class="segment-metric"><span>Uniformity</span><strong id="seg-detail-uniformity">-</strong></div>
+                        <div class="segment-metric"><span>Green Coverage</span><strong id="seg-detail-green">-</strong></div>
+                        <div class="segment-metric"><span>Stress Zone</span><strong id="seg-detail-stress">-</strong></div>
+                    </div>
+                </div>
+                <div class="feature-card segment-advanced-card">
+                    <h3>Detailed Segment Values</h3>
+                    <div class="segment-results-table-wrap">
+                        <table class="segment-results-table segment-results-table-compact">
+                            <thead>
+                                <tr>
+                                    <th>Segment</th>
+                                    <th>Health Score</th>
+                                    <th>Vigor</th>
+                                    <th>Canopy</th>
+                                    <th>Biomass</th>
+                                    <th>Uniformity</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adv-segment-summary-table-body">
+                                <tr>
+                                    <td colspan="6">No segment results yet.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
                 <div class="feature-grid">
                     <div class="feature-card">
