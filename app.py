@@ -1781,7 +1781,6 @@ def index():
         "index.html",
         username=to_upper_text(user.get("username", ""), "USER"),
         privilege=to_upper_text(user.get("privilege", ""), "USER"),
-        user_api_key=user.get("user_id", ""),
         upload_logs=session.get("upload_logs", []),
         entries=load_user_results_index(user.get("user_id", "")),
     )
