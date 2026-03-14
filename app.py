@@ -5,6 +5,7 @@ import mimetypes
 import io
 import base64
 import textwrap
+import shutil
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -44,6 +45,7 @@ SUPABASE_BUCKET_REPORTS = os.getenv("SUPABASE_BUCKET_REPORTS", "reports")
 
 supabase: Client | None = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_KEY else None
 TEMP_ROOT = BASE_DIR / "tmp"
+CACHED_MEDIA_ROOT = BASE_DIR / "static" / "cache"
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif", "bmp"}
 ANALYSIS_MAX_DIMENSION = 1600
 CROP_SEGMENT_MIN_MASK_COVERAGE = 0.20
@@ -98,6 +100,38 @@ def add_upload_log(user_id: str, message: str, level: str) -> None:
 
 def now_utc_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
+
+
+def ensure_cached_media_dir(user_id: str, image_id: str) -> Path:
+    cached_dir = CACHED_MEDIA_ROOT / user_id / image_id
+    cached_dir.mkdir(parents=True, exist_ok=True)
+    return cached_dir
+
+
+def _cached_media_url(path: Path) -> str:
+    return f"/{path.relative_to(BASE_DIR).as_posix()}"
+
+
+def _cached_media_entry(user_id: str, image_id: str, filename: str) -> tuple[Path, str]:
+    cache_dir = ensure_cached_media_dir(user_id, image_id)
+    cached_path = cache_dir / filename
+    return cached_path, _cached_media_url(cached_path)
+
+
+def cache_result_media(user_id: str, image_id: str, original_path: Path, heatzone_path: Path) -> dict[str, str]:
+    original_suffix = original_path.suffix.lower() or ".jpg"
+    cached_original_path, original_url = _cached_media_entry(user_id, image_id, f"original{original_suffix}")
+    cached_heatzone_path, heatzone_url = _cached_media_entry(user_id, image_id, "heatzone.png")
+
+    shutil.copyfile(original_path, cached_original_path)
+    shutil.copyfile(heatzone_path, cached_heatzone_path)
+
+    return {
+        "original_path": str(cached_original_path),
+        "original_url": original_url,
+        "heatzone_path": str(cached_heatzone_path),
+        "heatzone_url": heatzone_url,
+    }
 
 
 def upload_file_to_bucket(local_path: Path, bucket: str, object_path: str) -> tuple[bool, str]:
@@ -340,6 +374,8 @@ def load_user_results_from_supabase(user_id: str) -> list[dict[str, Any]] | None
             heatzone_ref = row.get("heatzone_path", "")
             if not original_ref or not heatzone_ref:
                 continue
+            cached_original_path, cached_original_url = _cached_media_entry(user_id, row["image_id"], f"original{Path(original_ref).suffix.lower() or '.jpg'}")
+            cached_heatzone_path, cached_heatzone_url = _cached_media_entry(user_id, row["image_id"], "heatzone.png")
             personalization = read_result_personalization(res.get("analysis_json"))
             display_title = personalization.get("title") or f"Result {row['image_id']}"
             entry = {
@@ -347,8 +383,8 @@ def load_user_results_from_supabase(user_id: str) -> list[dict[str, Any]] | None
                 "filename": row.get("filename", ""),
                 "created_at": row.get("uploaded_at") or res.get("created_at") or "",
                 "updated_at": row.get("updated_at") or res.get("updated_at") or "",
-                "original_url": signed_or_local_url(SUPABASE_BUCKET_ORIGINAL, original_ref, ""),
-                "heatzone_url": signed_or_local_url(SUPABASE_BUCKET_HEATZONE, heatzone_ref, ""),
+                "original_url": cached_original_url if cached_original_path.exists() else signed_or_local_url(SUPABASE_BUCKET_ORIGINAL, original_ref, ""),
+                "heatzone_url": cached_heatzone_url if cached_heatzone_path.exists() else signed_or_local_url(SUPABASE_BUCKET_HEATZONE, heatzone_ref, ""),
                 "original_storage_path": original_ref,
                 "heatzone_storage_path": heatzone_ref,
                 "analysis_json": res.get("analysis_json"),
@@ -414,13 +450,15 @@ def load_single_result_entry_from_supabase(user_id: str, image_id: str) -> dict[
 
         personalization = read_result_personalization(res.get("analysis_json"))
         display_title = personalization.get("title") or f"Result {row['image_id']}"
+        cached_original_path, cached_original_url = _cached_media_entry(user_id, row["image_id"], f"original{Path(original_ref).suffix.lower() or '.jpg'}")
+        cached_heatzone_path, cached_heatzone_url = _cached_media_entry(user_id, row["image_id"], "heatzone.png")
         entry = {
             "image_id": row["image_id"],
             "filename": row.get("filename", ""),
             "created_at": row.get("uploaded_at") or res.get("created_at") or "",
             "updated_at": row.get("updated_at") or res.get("updated_at") or "",
-            "original_url": signed_or_local_url(SUPABASE_BUCKET_ORIGINAL, original_ref, ""),
-            "heatzone_url": signed_or_local_url(SUPABASE_BUCKET_HEATZONE, heatzone_ref, ""),
+            "original_url": cached_original_url if cached_original_path.exists() else signed_or_local_url(SUPABASE_BUCKET_ORIGINAL, original_ref, ""),
+            "heatzone_url": cached_heatzone_url if cached_heatzone_path.exists() else signed_or_local_url(SUPABASE_BUCKET_HEATZONE, heatzone_ref, ""),
             "original_storage_path": original_ref,
             "heatzone_storage_path": heatzone_ref,
             "analysis_json": res.get("analysis_json"),
@@ -1471,6 +1509,13 @@ def _draw_card(draw, box: tuple[int, int, int, int], fill: str, outline: str, ra
 
 
 def _fetch_result_image_path(result: dict[str, Any], user_id: str, key: str) -> Path | None:
+    local_url_key = "original_url" if key == "original" else "heatzone_url"
+    local_url = result.get(local_url_key)
+    if isinstance(local_url, str) and local_url.startswith("/static/"):
+        local_path = BASE_DIR / local_url.lstrip("/")
+        if local_path.exists() and local_path.is_file():
+            return local_path
+
     storage_key = "original_storage_path" if key == "original" else "heatzone_storage_path"
     bucket = SUPABASE_BUCKET_ORIGINAL if key == "original" else SUPABASE_BUCKET_HEATZONE
     object_path = result.get(storage_key)
@@ -1971,6 +2016,7 @@ def rerun_result(image_id: str):
 
         heatzone_object_path = f"{user_id}/{image_id}/{processed['heatzone_filename']}"
         local_heatzone_path = Path(processed["heatzone_path"])
+        cached_media = cache_result_media(str(user_id), image_id, original_path, local_heatzone_path)
         ok_heat, err_heat = upload_file_to_bucket(local_heatzone_path, SUPABASE_BUCKET_HEATZONE, heatzone_object_path)
         require_bucket_upload(
             ok_heat,
@@ -1978,7 +2024,8 @@ def rerun_result(image_id: str):
             err_heat,
         )
         entry["heatzone_storage_path"] = heatzone_object_path
-        entry["heatzone_url"] = signed_or_local_url(SUPABASE_BUCKET_HEATZONE, heatzone_object_path, "")
+        entry["original_url"] = cached_media["original_url"]
+        entry["heatzone_url"] = cached_media["heatzone_url"]
 
         report_object_path = f"{user_id}/{image_id}.json"
         ok_json, err_json = upload_json_to_bucket(SUPABASE_BUCKET_REPORTS, report_object_path, processed["analysis"])
@@ -2026,6 +2073,10 @@ def delete_result(image_id: str):
         require_bucket_upload(delete_file_from_bucket(SUPABASE_BUCKET_ORIGINAL, original_path), "original image delete")
         require_bucket_upload(delete_file_from_bucket(SUPABASE_BUCKET_HEATZONE, heatzone_path), "heatzone image delete")
         require_bucket_upload(delete_file_from_bucket(SUPABASE_BUCKET_REPORTS, report_path), "report json delete")
+
+        cache_dir = CACHED_MEDIA_ROOT / user_id / image_id
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir, ignore_errors=True)
 
         supabase.table(SUPABASE_RESULTS_TABLE).delete().eq("image_id", image_id).execute()
         supabase.table(SUPABASE_IMAGES_TABLE).delete().eq("image_id", image_id).eq("user_id", user_id).execute()
@@ -2191,13 +2242,14 @@ def upload_image():
         ok_original, err_original = upload_file_to_bucket(original_path, SUPABASE_BUCKET_ORIGINAL, original_object_path)
         require_bucket_upload(ok_original, "original image", err_original)
         entry["original_storage_path"] = original_object_path
-        entry["original_url"] = signed_or_local_url(SUPABASE_BUCKET_ORIGINAL, original_object_path, "")
 
         local_heatzone_path = Path(processed["heatzone_path"])
+        cached_media = cache_result_media(str(user_id), image_id, original_path, local_heatzone_path)
         ok_heat, err_heat = upload_file_to_bucket(local_heatzone_path, SUPABASE_BUCKET_HEATZONE, heatzone_object_path)
         require_bucket_upload(ok_heat, "heatzone image", err_heat)
         entry["heatzone_storage_path"] = heatzone_object_path
-        entry["heatzone_url"] = signed_or_local_url(SUPABASE_BUCKET_HEATZONE, heatzone_object_path, "")
+        entry["original_url"] = cached_media["original_url"]
+        entry["heatzone_url"] = cached_media["heatzone_url"]
 
         ok_report, err_report = upload_json_to_bucket(SUPABASE_BUCKET_REPORTS, report_object_path, processed["analysis"])
         require_bucket_upload(ok_report, "report json", err_report)
