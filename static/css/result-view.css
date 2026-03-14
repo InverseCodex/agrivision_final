@@ -354,7 +354,8 @@ body {
     font-size: 0.96rem;
 }
 
-.embedded-personalization input {
+.embedded-personalization input,
+.embedded-personalization select {
     width: 100%;
     border: 1px solid #2C3F36;
     border-radius: 0.65rem;

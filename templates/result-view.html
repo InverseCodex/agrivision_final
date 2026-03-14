@@ -82,6 +82,16 @@
                                 <input id="crop-type-input" type="text" maxlength="120" placeholder="e.g. Rice, Corn" value="{{ personalization.crop_type or '' }}">
                             </div>
                             <div class="feature-card">
+                                <h3>Capture Altitude</h3>
+                                <select id="capture-altitude-input">
+                                    <option value="" {% if not personalization.capture_altitude_m %}selected{% endif %}>Select altitude</option>
+                                    <option value="40" {% if personalization.capture_altitude_m == '40' %}selected{% endif %}>40 m</option>
+                                    <option value="60" {% if personalization.capture_altitude_m == '60' %}selected{% endif %}>60 m</option>
+                                    <option value="80" {% if personalization.capture_altitude_m == '80' %}selected{% endif %}>80 m</option>
+                                    <option value="100" {% if personalization.capture_altitude_m == '100' %}selected{% endif %}>100 m</option>
+                                </select>
+                            </div>
+                            <div class="feature-card">
                                 <h3>Quick Result Tag</h3>
                                 <p id="quick-tag-display">{{ analysis.report.model_result.health_band|upper if analysis and analysis.report and analysis.report.model_result else 'WATCH' }}</p>
                             </div>

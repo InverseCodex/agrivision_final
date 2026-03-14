@@ -1,0 +1,628 @@
+* {
+    box-sizing: border-box;
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+:root {
+    --bg: #07120f;
+    --panel: #0b1a14;
+    --card: #10261e;
+    --accent: #1fa87a;
+    --accent-dark: #0b6b4d;
+    --muted: #bfcfc3;
+    --text: #e6f1ec;
+    --border: #2c3f36;
+    --danger: #d94d67;
+}
+
+body[data-theme="neon"] {
+    --bg: #08001a;
+    --panel: #12002b;
+    --card: #19003a;
+    --accent: #00f5d4;
+    --accent-dark: #00bbf9;
+    --muted: #d8ccff;
+    --text: #f5eeff;
+    --border: rgba(216, 204, 255, 0.18);
+    --danger: #ff4c93;
+}
+
+body[data-theme="minimalist"] {
+    --bg: #f2f4f5;
+    --panel: #ffffff;
+    --card: #f8fafb;
+    --accent: #2a6f97;
+    --accent-dark: #215a7a;
+    --muted: #4b5963;
+    --text: #182126;
+    --border: rgba(24, 33, 38, 0.12);
+    --danger: #b4475c;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--text);
+    background:
+        radial-gradient(1000px 480px at 8% -10%, rgba(31, 168, 122, 0.14), transparent 56%),
+        radial-gradient(900px 460px at 100% 0%, rgba(11, 107, 77, 0.13), transparent 58%),
+        var(--bg);
+}
+
+body.reduce-motion * {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+}
+
+.tutorial-app {
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr);
+    min-height: 100vh;
+}
+
+.tutorial-sidebar {
+    position: sticky;
+    top: 0;
+    min-height: 100vh;
+    padding: 1.2rem;
+    display: grid;
+    gap: 1rem;
+    align-content: start;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 18%), linear-gradient(0deg, var(--panel) 0%, var(--card) 100%);
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 16px 0 30px rgba(0, 0, 0, 0.28);
+}
+
+.tutorial-main {
+    padding: 1.2rem;
+    display: grid;
+    gap: 1rem;
+}
+
+.tutorial-user-card,
+.tutorial-progress-card,
+.tutorial-topbar,
+.tutorial-guide-card,
+.tutorial-panel {
+    background: linear-gradient(145deg, rgba(16, 38, 30, 0.9), rgba(10, 30, 24, 0.92));
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    padding: 1rem;
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.23), inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.tutorial-label,
+.tutorial-kicker,
+.tutorial-card-label {
+    margin: 0 0 0.35rem;
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.tutorial-user-card h1,
+.tutorial-progress-card h2,
+.tutorial-topbar h2,
+.tutorial-window-header h3,
+.tutorial-card h4,
+.tutorial-guide-card h3,
+.tutorial-real-header h3,
+.tutorial-result-topbar h4 {
+    margin: 0;
+}
+
+.tutorial-user-name,
+.tutorial-user-role,
+.tutorial-progress-card p,
+.tutorial-topbar p,
+.tutorial-window-copy,
+.tutorial-card p,
+.tutorial-guide-card p,
+.tutorial-real-header p,
+.tutorial-section-copy {
+    margin: 0;
+    color: var(--muted);
+}
+
+.tutorial-user-name {
+    margin-top: 0.7rem;
+    color: var(--text);
+    font-weight: 800;
+    font-size: 1.1rem;
+}
+
+.tutorial-progress-bar {
+    width: 100%;
+    height: 0.65rem;
+    margin-top: 0.95rem;
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.tutorial-progress-bar span {
+    display: block;
+    height: 100%;
+    width: 12.5%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--accent), var(--accent-dark));
+    transition: width 0.2s ease;
+}
+
+.tutorial-controls,
+.tutorial-exit-wrap,
+.tutorial-button-row,
+.tutorial-topbar,
+.tutorial-window-header,
+.tutorial-guide-header,
+.tutorial-toolbar-row,
+.tutorial-result-topbar {
+    display: flex;
+    gap: 0.7rem;
+    align-items: center;
+}
+
+.tutorial-controls {
+    justify-content: stretch;
+}
+
+.tutorial-btn,
+.mini-btn,
+.tutorial-real-nav {
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text);
+    border-radius: 0.75rem;
+    padding: 0.7rem 0.95rem;
+    font-weight: 800;
+    text-decoration: none;
+}
+
+.tutorial-btn,
+.mini-btn {
+    cursor: pointer;
+}
+
+.tutorial-btn,
+.mini-btn.primary,
+.tutorial-real-nav.is-active {
+    background: linear-gradient(90deg, var(--accent), var(--accent-dark));
+    color: #fff;
+    border-color: transparent;
+}
+
+.tutorial-btn.secondary,
+.tutorial-btn.exit,
+.mini-btn.secondary {
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+.tutorial-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.tutorial-topbar,
+.tutorial-window-header,
+.tutorial-guide-header,
+.tutorial-result-topbar {
+    justify-content: space-between;
+}
+
+.tutorial-stage-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+}
+
+.tutorial-stage-chip {
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--muted);
+    border-radius: 999px;
+    padding: 0.55rem 0.85rem;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.tutorial-stage-chip.is-active {
+    background: linear-gradient(90deg, var(--accent), var(--accent-dark));
+    color: #fff;
+    border-color: transparent;
+}
+
+.tutorial-scene-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+.tutorial-window {
+    opacity: 0.55;
+    transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.tutorial-window.is-highlighted,
+.tutorial-card.is-highlighted {
+    opacity: 1;
+    border-color: rgba(31, 168, 122, 0.7);
+    box-shadow: 0 0 0 2px rgba(31, 168, 122, 0.12), 0 12px 26px rgba(0, 0, 0, 0.26);
+}
+
+.tutorial-panel.is-highlighted {
+    animation: tutorialPulse 2.1s ease-in-out infinite;
+}
+
+.tutorial-real-shell {
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.18);
+}
+
+.dashboard-shell {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+    min-height: 520px;
+}
+
+.tutorial-real-sidebar {
+    padding: 0.85rem;
+    display: grid;
+    align-content: start;
+    gap: 0.55rem;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 18%), linear-gradient(0deg, var(--panel) 0%, var(--card) 100%);
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tutorial-real-user {
+    display: flex;
+    gap: 0.7rem;
+    align-items: center;
+    padding: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.9rem;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
+    margin-bottom: 0.35rem;
+}
+
+.tutorial-avatar {
+    width: 2.6rem;
+    height: 2.6rem;
+    border-radius: 0.8rem;
+    background: linear-gradient(135deg, #63d2b5 0%, #3dba9f 40%, #1f8f78 100%);
+}
+
+.tutorial-real-user strong,
+.tutorial-api-key,
+.tutorial-file-meta strong,
+.tutorial-result-copy h4,
+.tutorial-feature-grid strong,
+.tutorial-kpi-card strong {
+    color: var(--text);
+}
+
+.tutorial-real-user span,
+.tutorial-file-meta span {
+    display: block;
+    color: var(--muted);
+    font-size: 0.82rem;
+}
+
+.tutorial-real-nav {
+    width: 100%;
+    text-align: left;
+}
+
+.tutorial-real-content {
+    padding: 1rem;
+    display: grid;
+    gap: 1rem;
+}
+
+.tutorial-real-header {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.tutorial-real-api,
+.tutorial-real-upload-box,
+.tutorial-card,
+.tutorial-result-card,
+.tutorial-filter-row span,
+.tutorial-field-grid span,
+.tutorial-kpi-card,
+.tutorial-feature-grid div,
+.tutorial-advanced-table div,
+.tutorial-notes-box {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015));
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+}
+
+.tutorial-real-api {
+    padding: 0.9rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: center;
+}
+
+.tutorial-real-api h4,
+.tutorial-real-upload-box h4 {
+    margin: 0 0 0.2rem;
+}
+
+.tutorial-api-key {
+    padding: 0.75rem 1rem;
+    border-radius: 0.8rem;
+    background: rgba(233, 249, 242, 0.95);
+    color: #10261e;
+    font-weight: 800;
+}
+
+.tutorial-real-upload-box {
+    padding: 1rem;
+    display: grid;
+    gap: 0.95rem;
+}
+
+.tutorial-real-upload-layout {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.tutorial-card,
+.tutorial-section-card {
+    padding: 0.95rem;
+    display: grid;
+    gap: 0.7rem;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.tutorial-dropzone-art,
+.tutorial-image-preview,
+.tutorial-result-thumb,
+.tutorial-crop-art,
+.tutorial-heatzone-art {
+    border: 1px solid var(--border);
+    border-radius: 0.85rem;
+    min-height: 200px;
+}
+
+.tutorial-dropzone-art {
+    display: grid;
+    place-items: center;
+    gap: 0.2rem;
+    text-align: center;
+    border-style: dashed;
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.tutorial-dropzone-icon {
+    width: 4rem;
+    height: 4rem;
+    border-radius: 999px;
+    background: radial-gradient(circle at 50% 35%, rgba(31, 168, 122, 0.5), rgba(11, 107, 77, 0.16));
+}
+
+.tutorial-file-meta,
+.tutorial-upload-hints {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.tutorial-upload-hints {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tutorial-upload-hints span,
+.tutorial-status-line {
+    color: var(--muted);
+    font-size: 0.84rem;
+}
+
+.tutorial-image-preview,
+.tutorial-crop-art {
+    background:
+        linear-gradient(135deg, rgba(224, 196, 106, 0.18), rgba(56, 122, 48, 0.15)),
+        repeating-linear-gradient(90deg, rgba(170, 185, 94, 0.8) 0 8px, rgba(92, 110, 33, 0.7) 8px 14px);
+    position: relative;
+    overflow: hidden;
+}
+
+.tutorial-image-preview::after {
+    content: "";
+    position: absolute;
+    inset: auto 0.9rem 0.9rem auto;
+    width: 142px;
+    height: 32px;
+    border-radius: 999px;
+    background: rgba(4, 10, 8, 0.72);
+}
+
+.tutorial-filter-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.tutorial-filter-row span,
+.tutorial-field-grid span,
+.tutorial-feature-grid div,
+.tutorial-kpi-card,
+.tutorial-advanced-table div,
+.tutorial-notes-box {
+    padding: 0.8rem;
+    color: var(--muted);
+}
+
+.tutorial-result-card {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 0.9rem;
+    padding: 0.9rem;
+}
+
+.tutorial-result-thumb,
+.tutorial-heatzone-art {
+    background:
+        radial-gradient(circle at 30% 40%, rgba(41, 211, 117, 0.75), transparent 22%),
+        radial-gradient(circle at 70% 60%, rgba(255, 89, 89, 0.72), transparent 18%),
+        linear-gradient(135deg, rgba(15, 28, 18, 0.9), rgba(29, 58, 41, 0.8));
+}
+
+.tutorial-result-page {
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.16);
+}
+
+.tutorial-result-topbar {
+    padding: 1rem 1.1rem;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(16, 38, 30, 0.92) 0%, rgba(11, 26, 20, 0.96) 100%);
+}
+
+.tutorial-result-page-layout {
+    padding: 1rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.tutorial-toolbar-row,
+.tutorial-kpi-grid,
+.tutorial-feature-grid,
+.tutorial-field-grid,
+.tutorial-recommendation-list,
+.tutorial-crop-board,
+.tutorial-advanced-table {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.tutorial-toolbar-row {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.tutorial-crop-art::after {
+    content: "";
+    position: absolute;
+    inset: 15% 13% 18% 10%;
+    border-radius: 0.75rem;
+    border: 3px solid rgba(255, 255, 255, 0.9);
+    box-shadow: 0 0 0 999px rgba(7, 18, 15, 0.35);
+}
+
+.tutorial-kpi-grid,
+.tutorial-feature-grid,
+.tutorial-field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tutorial-rec-item {
+    display: grid;
+    gap: 0.45rem;
+    padding: 0.85rem;
+    border-radius: 0.85rem;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.priority {
+    width: fit-content;
+    padding: 0.35rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 800;
+}
+
+.priority.high {
+    color: #fff;
+    background: rgba(255, 98, 98, 0.88);
+}
+
+.priority.medium {
+    color: #14261e;
+    background: rgba(246, 185, 73, 0.88);
+}
+
+.tutorial-notes-box {
+    min-height: 96px;
+    display: grid;
+    place-items: center start;
+}
+
+.tutorial-advanced-table div {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+}
+
+.tutorial-tip-list {
+    display: grid;
+    gap: 0.65rem;
+    margin-top: 1rem;
+}
+
+.tutorial-tip {
+    padding: 0.85rem 0.9rem;
+    border-radius: 0.85rem;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--muted);
+}
+
+@keyframes tutorialPulse {
+    0%, 100% {
+        box-shadow: 0 0 0 2px rgba(31, 168, 122, 0.12), 0 12px 26px rgba(0, 0, 0, 0.26);
+    }
+    50% {
+        box-shadow: 0 0 0 3px rgba(31, 168, 122, 0.22), 0 18px 30px rgba(0, 0, 0, 0.3);
+    }
+}
+
+@media (max-width: 1180px) {
+    .tutorial-app {
+        grid-template-columns: 1fr;
+    }
+
+    .tutorial-sidebar {
+        position: static;
+        min-height: auto;
+        border-right: 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        box-shadow: none;
+    }
+}
+
+@media (max-width: 940px) {
+    .dashboard-shell,
+    .tutorial-real-upload-layout,
+    .tutorial-result-page-layout,
+    .tutorial-result-card,
+    .tutorial-filter-row,
+    .tutorial-kpi-grid,
+    .tutorial-feature-grid,
+    .tutorial-field-grid,
+    .tutorial-upload-hints {
+        grid-template-columns: 1fr;
+    }
+
+    .tutorial-real-api,
+    .tutorial-topbar,
+    .tutorial-window-header,
+    .tutorial-guide-header,
+    .tutorial-result-topbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}

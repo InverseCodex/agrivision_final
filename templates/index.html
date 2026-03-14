@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 
-<html>
+<html lang="en">
     <head>
         <meta charset="utf-8">
         <meta http-equiv="X-UA-Compatible" content="IE=edge">
-        <title></title>
-        <meta name="description" content="">
+        <title>Dashboard | AgriVision</title>
+        <meta name="description" content="AgriVision dashboard for uploading field images, reviewing vegetation analysis, and exporting thesis-ready reports.">
         <meta name="viewport" content="width=device-width, initial-scale=1">
 
         <!-- Font Links -->
@@ -28,9 +28,6 @@
 
         <!-- Main CSS Links -->
         <link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">
-
-        <!-- CSS Links for Responsiveness -->
-         <link rel="stylesheet" href="">
     </head>
 
     <body>
@@ -86,9 +83,9 @@
                     <p>Settings</p>
                 </button>
 
-                <button class="navbar-button" id="help-button">
+                <button class="navbar-button" id="help-button" data-nav-url="{{ url_for('tutorial_page') }}">
                     <ion-icon name="help-outline"></ion-icon>
-                    <p>Help</p>
+                    <p>Tutorial</p>
                 </button>
 
                 <button class="navbar-button" id="admin-button">
@@ -173,7 +170,7 @@
                         </div>
 
                         <!-- COntainer for image preview -->
-                        <div class="image-preview">
+                        <div class="image-preview" id="image-preview-panel">
                             <img id="preview-image" src="" alt="Selected image preview">
                             <div class="preview-placeholder" id="preview-placeholder">
                                 <ion-icon name="images-outline"></ion-icon>
@@ -214,7 +211,7 @@
                     </select>
                 </div>
 
-                <div class="results-gallery">
+                <div class="results-gallery" id="results-gallery">
                     {% if entries and entries|length > 0 %}
                         {% for entry in entries %}
                         <article
@@ -253,7 +250,7 @@
                     <p>Change some website properties</p>
                 </div>
 
-                <div class="settings-panel">
+                <div class="settings-panel" id="settings-panel">
                     <div class="setting-group">
                         <h2>Color Palette</h2>
                         <p>Choose a visual preset for the dashboard.</p>
@@ -296,71 +293,76 @@
             <div class="content-window" id="help-window">
 
                 <div class="content-header" id="help-header">
-                    <h1>Help</h1>
-                    <p>Find documentation and support resources here.</p>
+                    <h1>Tutorial</h1>
+                    <p>Learn the website from upload to final analysis with a guided visual walkthrough.</p>
                 </div>
 
-                <div class="help-guide">
-                    <section class="help-hero">
-                        <h2>Welcome to your farm image assistant</h2>
-                        <p>No tech skills needed. Follow the quick guide below and click the buttons to jump to each feature.</p>
+                <div class="tutorial-shell" id="tutorial-shell">
+                    <section class="tutorial-banner">
+                        <div class="tutorial-banner-copy">
+                            <p class="tutorial-kicker">Guided Site Walkthrough</p>
+                            <h2>Step through the real workflow from start to finish</h2>
+                            <p>Open the Tutorial tab to enter this guided session. Each stage shows a mini version of the real dashboard, with motion cues, highlighted actions, and simple explanations for what the farmer should do next.</p>
+                        </div>
+                        <div class="tutorial-banner-actions">
+                            <button type="button" class="upload-btn" id="tutorial-begin">Begin Tutorial</button>
+                            <button type="button" class="upload-btn secondary-upload-btn" id="tutorial-exit-top">Finish Tutorial</button>
+                        </div>
                     </section>
 
-                    <section class="help-tour" id="help-tour">
-                        <h3>Quick Interactive Tour</h3>
-                        <div class="tour-card">
-                            <p class="tour-step-label" id="tour-step-label">Step 1 of 4</p>
-                            <h4 id="tour-step-title">Upload your first image</h4>
-                            <p id="tour-step-body">Go to Upload Images, choose a farm image, and click Upload Image.</p>
-                            <div class="tour-actions">
-                                <button type="button" class="upload-btn secondary-upload-btn" id="tour-prev">Back</button>
-                                <button type="button" class="upload-btn" id="tour-next">Next</button>
-                                <button type="button" class="upload-btn help-jump-btn" data-target-window="upload">Take Me There</button>
+                    <section class="tutorial-progress-panel">
+                        <div class="tutorial-stage-track" id="tutorial-stage-track">
+                            <button type="button" class="tutorial-stage-chip is-active" data-tutorial-step="0">1. Home Upload</button>
+                            <button type="button" class="tutorial-stage-chip" data-tutorial-step="1">2. Select Image</button>
+                            <button type="button" class="tutorial-stage-chip" data-tutorial-step="2">3. Results List</button>
+                            <button type="button" class="tutorial-stage-chip" data-tutorial-step="3">4. Crop & Segment</button>
+                            <button type="button" class="tutorial-stage-chip" data-tutorial-step="4">5. Recommendations</button>
+                            <button type="button" class="tutorial-stage-chip" data-tutorial-step="5">6. Advanced Results</button>
+                        </div>
+                        <div class="tutorial-stage-status">
+                            <p class="tour-step-label" id="tutorial-step-label">Step 1 of 6</p>
+                            <div class="tutorial-stage-progress-bar">
+                                <span id="tutorial-progress-fill"></span>
                             </div>
-                            <div class="tour-progress" id="tour-progress" aria-hidden="true"></div>
                         </div>
                     </section>
 
-                    <section class="help-features">
-                        <h3>What each tab does</h3>
-                        <div class="help-feature-grid">
-                            <article class="help-feature-card">
-                                <h4>Upload Images</h4>
-                                <p>Add your image manually and preview it before analysis.</p>
-                                <button type="button" class="upload-btn help-jump-btn" data-target-window="upload">Open Upload</button>
-                            </article>
-                            <article class="help-feature-card">
-                                <h4>View Results</h4>
-                                <p>See health insights, open reports, and download PDF copies.</p>
-                                <button type="button" class="upload-btn help-jump-btn" data-target-window="results">Open Results</button>
-                            </article>
-                            <article class="help-feature-card">
-                                <h4>Settings</h4>
-                                <p>Change colors, update name, and reduce motion if needed.</p>
-                                <button type="button" class="upload-btn help-jump-btn" data-target-window="settings">Open Settings</button>
-                            </article>
-                            <article class="help-feature-card">
-                                <h4>View Logs</h4>
-                                <p>For admins: check recent upload and system events.</p>
-                                <button type="button" class="upload-btn help-jump-btn" data-target-window="admin">Open Logs</button>
-                            </article>
-                        </div>
+                    <section class="tutorial-workspace">
+                        <article class="tutorial-story-card">
+                            <div class="tutorial-story-header">
+                                <div>
+                                    <p class="tour-step-label" id="tutorial-card-kicker">Welcome</p>
+                                    <h3 id="tutorial-card-title">Upload image from the home screen</h3>
+                                </div>
+                                <span class="tutorial-window-badge" id="tutorial-window-badge">Upload Window</span>
+                            </div>
+                            <p class="tutorial-story-body" id="tutorial-card-body">The workflow starts at the Upload Images home screen. This is where the farmer uploads the sample field image and begins analysis.</p>
+                            <div class="tutorial-focus-points" id="tutorial-focus-points"></div>
+                            <div class="tutorial-controls">
+                                <button type="button" class="upload-btn secondary-upload-btn" id="tutorial-prev">Back</button>
+                                <button type="button" class="upload-btn secondary-upload-btn" id="tutorial-exit-bottom">Finish Tutorial</button>
+                                <button type="button" class="upload-btn" id="tutorial-next">Next</button>
+                            </div>
+                        </article>
+
+                        <article class="tutorial-preview-frame">
+                            <div class="tutorial-preview-stage" id="tutorial-preview-stage"></div>
+                        </article>
                     </section>
 
-                    <section class="help-faq">
-                        <h3>Common Questions</h3>
-                        <details>
-                            <summary>I uploaded an image but can’t continue. What should I do?</summary>
-                            <p>Make sure your file is JPG, PNG, or WEBP and smaller than 10 MB. Then try again.</p>
-                        </details>
-                        <details>
-                            <summary>Where do I see the analysis after upload?</summary>
-                            <p>Open the View Results tab. Your newest item should appear at the top.</p>
-                        </details>
-                        <details>
-                            <summary>Can I keep a copy of the report?</summary>
-                            <p>Yes. In View Results, open your result and use the PDF button to download a copy.</p>
-                        </details>
+                    <section class="tutorial-side-notes">
+                        <article class="help-feature-card">
+                            <h4>Result windows explained</h4>
+                            <p>The tutorial includes the crop and segment workspace, recommendation board, and advanced results panel so the farmer understands every result screen.</p>
+                        </article>
+                        <article class="help-feature-card">
+                            <h4>Looks like the real app</h4>
+                            <p>The preview cards reuse the same layout style as the website so the farmer learns by recognizing the real interface.</p>
+                        </article>
+                        <article class="help-feature-card">
+                            <h4>Finish anytime</h4>
+                            <p>Press Finish Tutorial at any stage and the dashboard returns to the Upload Images home tab.</p>
+                        </article>
                     </section>
                 </div>
 
@@ -390,8 +392,6 @@
             </div>
         </div>
 
-
-
         <!-- Javascript Links -->
         <script src="{{ url_for('static', filename='js/navbar-button.js') }}" defer></script>
         <script src="{{ url_for('static', filename='js/results-tab.js') }}" defer></script>
@@ -405,3 +405,4 @@
         <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
     </body>
 </html>
+

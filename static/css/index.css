@@ -1019,104 +1019,486 @@ body[data-theme="minimalist"] .upload-btn {
     animation: themePulseMinimalist 4.8s ease-in-out infinite;
 }
 
-.help-guide {
+.tutorial-shell {
     margin-top: 1rem;
     display: grid;
     gap: 1rem;
 }
 
-.help-hero,
-.help-tour,
-.help-features,
-.help-faq {
+.tutorial-banner,
+.tutorial-progress-panel,
+.tutorial-story-card,
+.tutorial-preview-frame,
+.tutorial-side-notes {
     border: 1px solid rgba(255, 255, 255, 0.09);
     border-radius: 1rem;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015));
-    padding: 1rem;
     box-shadow: 0 12px 24px rgba(0, 0, 0, 0.26), 0 1px 0 rgba(255, 255, 255, 0.06) inset;
 }
 
-.help-hero h2,
-.help-tour h3,
-.help-features h3,
-.help-faq h3 {
+.tutorial-banner {
+    padding: 1.2rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1.8fr) minmax(240px, 0.8fr);
+    gap: 1rem;
+    align-items: center;
+    background:
+        radial-gradient(circle at top right, rgba(31, 168, 122, 0.22), transparent 32%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015));
+}
+
+.tutorial-banner-copy h2,
+.tutorial-story-header h3 {
     margin: 0;
     color: var(--text);
 }
 
-.help-hero p {
-    margin: 0.55rem 0 0;
+.tutorial-banner-copy p:last-child,
+.tutorial-story-body {
+    margin: 0.65rem 0 0;
     color: var(--muted);
 }
 
-.tour-card {
-    margin-top: 0.8rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 0.9rem;
-    background: rgba(0, 0, 0, 0.18);
-    padding: 0.9rem;
-    display: grid;
-    gap: 0.55rem;
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.24), 0 1px 0 rgba(255, 255, 255, 0.05) inset;
-}
-
+.tutorial-kicker,
 .tour-step-label {
     margin: 0;
-    color: var(--muted);
-    font-size: 0.82rem;
-    letter-spacing: 0.07em;
+    color: var(--accent);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
 }
 
-.tour-card h4 {
-    margin: 0;
-    color: var(--text);
-    font-size: 1.06rem;
+.tutorial-banner-actions {
+    display: grid;
+    gap: 0.7rem;
 }
 
-.tour-card p {
+.tutorial-progress-panel {
+    padding: 1rem;
+    display: grid;
+    gap: 0.9rem;
+}
+
+.tutorial-stage-track {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+}
+
+.tutorial-stage-chip {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--muted);
+    padding: 0.6rem 0.85rem;
+    border-radius: 999px;
+    cursor: pointer;
+    font-weight: 700;
+    transition: transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.tutorial-stage-chip:hover,
+.tutorial-stage-chip.is-active {
+    background: linear-gradient(90deg, rgba(31, 168, 122, 0.26), rgba(11, 107, 77, 0.3));
+    border-color: rgba(255, 255, 255, 0.18);
+    color: var(--text);
+    transform: translateY(-1px);
+}
+
+.tutorial-stage-status {
+    display: grid;
+    gap: 0.55rem;
+}
+
+.tutorial-stage-progress-bar {
+    width: 100%;
+    height: 0.55rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+
+.tutorial-stage-progress-bar span {
+    display: block;
+    height: 100%;
+    width: 16.6%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--accent), var(--accent-dark));
+    transition: width 0.35s ease;
+}
+
+.tutorial-workspace {
+    display: grid;
+    grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.35fr);
+    gap: 1rem;
+}
+
+.tutorial-story-card,
+.tutorial-preview-frame {
+    padding: 1rem;
+}
+
+.tutorial-story-card {
+    display: grid;
+    gap: 0.9rem;
+}
+
+.tutorial-story-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.8rem;
+    align-items: flex-start;
+}
+
+.tutorial-window-badge {
+    padding: 0.45rem 0.7rem;
+    border-radius: 999px;
+    background: rgba(31, 168, 122, 0.16);
+    color: var(--text);
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.tutorial-focus-points,
+.tutorial-side-notes {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.tutorial-focus-chip {
+    padding: 0.8rem 0.9rem;
+    border-radius: 0.9rem;
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--muted);
+}
+
+.tutorial-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+}
+
+.tutorial-preview-frame {
+    min-height: 540px;
+    overflow: hidden;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(5, 12, 10, 0.12)),
+        radial-gradient(circle at top left, rgba(31, 168, 122, 0.14), transparent 25%);
+}
+
+.tutorial-preview-stage {
+    height: 100%;
+}
+
+.tutorial-preview-stage.is-entering {
+    animation: tutorialStageIn 0.45s ease;
+}
+
+.tutorial-mock {
+    height: 100%;
+    min-height: 500px;
+    border-radius: 1.1rem;
+    background: rgba(4, 10, 8, 0.32);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 1rem;
+    display: grid;
+    gap: 0.9rem;
+}
+
+.tutorial-mock-dashboard {
+    grid-template-columns: 180px minmax(0, 1fr);
+}
+
+.tutorial-mini-sidebar {
+    display: grid;
+    align-content: start;
+    gap: 0.6rem;
+    padding: 0.9rem;
+    border-radius: 1rem;
+    background: rgba(0, 0, 0, 0.22);
+}
+
+.tutorial-mini-user {
+    color: var(--text);
+    font-weight: 800;
+    margin-bottom: 0.5rem;
+}
+
+.tutorial-mini-nav,
+.tutorial-mini-btn,
+.tutorial-priority {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.55rem 0.8rem;
+    border-radius: 0.8rem;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.tutorial-mini-nav.is-active,
+.tutorial-mini-btn.is-primary {
+    background: linear-gradient(90deg, rgba(31, 168, 122, 0.88), rgba(11, 107, 77, 0.92));
+    color: #f2fff8;
+}
+
+.tutorial-mini-main,
+.tutorial-pane {
+    display: grid;
+    gap: 0.8rem;
+    padding: 0.9rem;
+    border-radius: 1rem;
+    background: rgba(255, 255, 255, 0.035);
+}
+
+.tutorial-mini-header h4,
+.tutorial-pane h5,
+.tutorial-result-copy h5 {
+    margin: 0;
+    color: var(--text);
+}
+
+.tutorial-mini-header p,
+.tutorial-pane p,
+.tutorial-result-copy p,
+.help-feature-card p {
     margin: 0;
     color: var(--muted);
 }
 
-.tour-actions {
+.tutorial-mini-upload-layout,
+.tutorial-upload-preview-grid,
+.tutorial-result-columns,
+.tutorial-kpi-row,
+.tutorial-metric-grid {
+    display: grid;
+    gap: 0.8rem;
+}
+
+.tutorial-mini-upload-layout,
+.tutorial-upload-preview-grid,
+.tutorial-result-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tutorial-mini-dropzone,
+.tutorial-mini-preview-card,
+.tutorial-upload-file-card,
+.tutorial-sample-photo,
+.tutorial-result-card,
+.tutorial-canvas-frame,
+.tutorial-mini-heatzone,
+.tutorial-notes-box,
+.tutorial-metric-card,
+.tutorial-kpi-card {
+    border-radius: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.045);
+}
+
+.tutorial-mini-dropzone,
+.tutorial-mini-preview-card,
+.tutorial-upload-file-card,
+.tutorial-sample-photo,
+.tutorial-canvas-frame,
+.tutorial-mini-heatzone,
+.tutorial-notes-box {
+    min-height: 170px;
+    padding: 1rem;
+}
+
+.tutorial-mini-dropzone {
+    display: grid;
+    place-items: center;
+    text-align: center;
+    position: relative;
+}
+
+.tutorial-highlight-tag {
+    position: absolute;
+    top: 0.9rem;
+    left: 0.9rem;
+    padding: 0.35rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92);
+    color: #10261e;
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.tutorial-mini-image,
+.tutorial-sample-photo {
+    background:
+        linear-gradient(135deg, rgba(224, 196, 106, 0.18), rgba(56, 122, 48, 0.15)),
+        repeating-linear-gradient(90deg, rgba(170, 185, 94, 0.8) 0 8px, rgba(92, 110, 33, 0.7) 8px 14px);
+}
+
+.tutorial-sample-photo {
+    position: relative;
+    overflow: hidden;
+}
+
+.tutorial-sample-photo-overlay {
+    position: absolute;
+    right: 0.8rem;
+    bottom: 0.8rem;
+    padding: 0.35rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(4, 10, 8, 0.7);
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.tutorial-file-name {
+    font-weight: 800;
+    color: var(--text);
+}
+
+.tutorial-mini-status.success {
+    width: fit-content;
+    padding: 0.45rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(65, 211, 146, 0.18);
+    color: #88f0bf;
+    font-weight: 700;
+}
+
+.tutorial-mini-upload-actions,
+.tutorial-result-links,
+.tutorial-toolbar-row,
+.tutorial-advanced-header {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.55rem;
+    gap: 0.6rem;
+    align-items: center;
 }
 
-.tour-progress {
+.tutorial-mini-filters {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 0.4rem;
-    margin-top: 0.2rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.7rem;
 }
 
-.tour-dot {
-    height: 0.38rem;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.17);
+.tutorial-mini-filters span,
+.tutorial-mini-table div,
+.tutorial-notes-box {
+    padding: 0.7rem 0.8rem;
+    border-radius: 0.8rem;
+    background: rgba(255, 255, 255, 0.045);
+    color: var(--muted);
 }
 
-.tour-dot.active {
-    background: linear-gradient(90deg, var(--accent), var(--accent-dark));
-}
-
-.help-feature-grid {
-    margin-top: 0.8rem;
+.tutorial-result-card {
     display: grid;
-    gap: 0.75rem;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 180px minmax(0, 1fr);
+    gap: 0.85rem;
+    padding: 0.85rem;
+}
+
+.tutorial-result-thumb,
+.tutorial-mini-heatzone {
+    min-height: 180px;
+    background:
+        radial-gradient(circle at 30% 40%, rgba(41, 211, 117, 0.75), transparent 22%),
+        radial-gradient(circle at 70% 60%, rgba(255, 89, 89, 0.72), transparent 18%),
+        linear-gradient(135deg, rgba(15, 28, 18, 0.9), rgba(29, 58, 41, 0.8));
+}
+
+.tutorial-result-copy,
+.tutorial-rec-board {
+    display: grid;
+    gap: 0.7rem;
+}
+
+.tutorial-pane-large {
+    min-height: 320px;
+}
+
+.tutorial-pane-full {
+    min-height: 100%;
+}
+
+.tutorial-canvas-frame {
+    position: relative;
+    overflow: hidden;
+    background:
+        linear-gradient(135deg, rgba(224, 196, 106, 0.18), rgba(56, 122, 48, 0.15)),
+        repeating-linear-gradient(90deg, rgba(170, 185, 94, 0.8) 0 8px, rgba(92, 110, 33, 0.7) 8px 14px);
+}
+
+.tutorial-crop-overlay {
+    position: absolute;
+    inset: 16% 14% 18% 12%;
+    border: 3px solid rgba(255, 255, 255, 0.92);
+    border-radius: 0.8rem;
+    box-shadow: 0 0 0 999px rgba(4, 10, 8, 0.4);
+}
+
+.tutorial-rec-item {
+    display: grid;
+    gap: 0.5rem;
+    padding: 0.8rem;
+    border-radius: 0.9rem;
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tutorial-priority {
+    width: fit-content;
+    color: #f2fff8;
+    background: rgba(255, 98, 98, 0.85);
+}
+
+.tutorial-priority.medium {
+    background: rgba(246, 185, 73, 0.85);
+    color: #10261e;
+}
+
+.tutorial-kpi-card,
+.tutorial-metric-card {
+    padding: 0.9rem;
+    display: grid;
+    gap: 0.45rem;
+}
+
+.tutorial-kpi-card span,
+.tutorial-metric-card span {
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+.tutorial-kpi-card strong,
+.tutorial-metric-card strong {
+    color: var(--text);
+    font-size: 1rem;
+}
+
+.tutorial-mini-table {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.tutorial-mini-table div {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.6rem;
+}
+
+.tutorial-side-notes {
+    padding: 1rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .help-feature-card {
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 0.9rem;
+    border-radius: 0.95rem;
     background: rgba(0, 0, 0, 0.18);
-    padding: 0.85rem;
+    padding: 0.95rem;
     display: grid;
     gap: 0.45rem;
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.23), 0 1px 0 rgba(255, 255, 255, 0.05) inset;
 }
 
 .help-feature-card h4 {
@@ -1124,32 +1506,43 @@ body[data-theme="minimalist"] .upload-btn {
     color: var(--text);
 }
 
-.help-feature-card p {
-    margin: 0;
-    color: var(--muted);
+.tutorial-pulse-target {
+    animation: tutorialPulse 2.1s ease-in-out infinite;
 }
 
-.help-jump-btn {
-    width: fit-content;
+.tutorial-float-card {
+    animation: tutorialFloat 4.2s ease-in-out infinite;
 }
 
-.help-faq details {
-    margin-top: 0.55rem;
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    border-radius: 0.8rem;
-    padding: 0.65rem 0.75rem;
-    background: rgba(0, 0, 0, 0.14);
+@keyframes tutorialPulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(31, 168, 122, 0.22);
+        transform: scale(1);
+    }
+    50% {
+        box-shadow: 0 0 0 12px rgba(31, 168, 122, 0.04);
+        transform: scale(1.01);
+    }
 }
 
-.help-faq summary {
-    cursor: pointer;
-    color: var(--text);
-    font-weight: 700;
+@keyframes tutorialFloat {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-6px);
+    }
 }
 
-.help-faq details p {
-    margin: 0.5rem 0 0;
-    color: var(--muted);
+@keyframes tutorialStageIn {
+    from {
+        opacity: 0;
+        transform: translateY(18px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .logs-console {
@@ -1327,7 +1720,13 @@ body.reduce-motion * {
         grid-template-columns: 1fr 1fr;
     }
 
-    .help-feature-grid {
+    .tutorial-workspace,
+    .tutorial-banner,
+    .tutorial-mock-dashboard,
+    .tutorial-mini-upload-layout,
+    .tutorial-upload-preview-grid,
+    .tutorial-result-columns,
+    .tutorial-side-notes {
         grid-template-columns: 1fr;
     }
 }
@@ -1455,9 +1854,29 @@ body.reduce-motion * {
         grid-template-columns: 1fr;
     }
 
-    .tour-actions .upload-btn {
+    .tutorial-banner {
+        grid-template-columns: 1fr;
+    }
+
+    .tutorial-stage-track {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .tutorial-controls .upload-btn,
+    .tutorial-banner-actions .upload-btn {
         width: 100%;
         text-align: center;
+    }
+
+    .tutorial-preview-frame,
+    .tutorial-mock {
+        min-height: auto;
+    }
+
+    .tutorial-result-card,
+    .tutorial-mini-filters {
+        grid-template-columns: 1fr;
     }
 }
 

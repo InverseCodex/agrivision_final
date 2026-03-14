@@ -12,6 +12,7 @@ const personalizationStatus = document.getElementById("personalization-status");
 const customTitleInput = document.getElementById("custom-title-input");
 const fieldNameInput = document.getElementById("field-name-input");
 const cropTypeInput = document.getElementById("crop-type-input");
+const captureAltitudeInput = document.getElementById("capture-altitude-input");
 
 const cropSourceImage = document.getElementById("crop-source-image");
 const cropOverlayCanvas = document.getElementById("crop-overlay-canvas");
@@ -86,6 +87,7 @@ let personalizationState = {
     title: "",
     field_name: "",
     crop_type: "",
+    capture_altitude_m: "",
     farmer_notes: "",
     recommendation_checks: [],
     flags: [],
@@ -114,6 +116,9 @@ if (fieldNameInput && !fieldNameInput.value && personalizationState.field_name) 
 }
 if (cropTypeInput && !cropTypeInput.value && personalizationState.crop_type) {
     cropTypeInput.value = personalizationState.crop_type;
+}
+if (captureAltitudeInput && !captureAltitudeInput.value && personalizationState.capture_altitude_m) {
+    captureAltitudeInput.value = personalizationState.capture_altitude_m;
 }
 if (notesInput && !notesInput.value && personalizationState.farmer_notes) {
     notesInput.value = personalizationState.farmer_notes;
@@ -420,8 +425,14 @@ function renderSegmentButtons(segments, grid) {
     segmentCols = Number(grid?.cols || 4);
 
     if (segmentVisualGrid) {
-        segmentVisualGrid.style.gridTemplateColumns = `repeat(${segmentCols}, minmax(0, 1fr))`;
-        segmentVisualGrid.style.gridTemplateRows = `repeat(${segmentRows}, minmax(0, 1fr))`;
+        const colWeights = Array.isArray(grid?.col_weights) && grid.col_weights.length === segmentCols
+            ? grid.col_weights
+            : Array.from({ length: segmentCols }, () => 1);
+        const rowWeights = Array.isArray(grid?.row_weights) && grid.row_weights.length === segmentRows
+            ? grid.row_weights
+            : Array.from({ length: segmentRows }, () => 1);
+        segmentVisualGrid.style.gridTemplateColumns = colWeights.map((weight) => `minmax(0, ${Math.max(1, Number(weight) || 1)}fr)`).join(" ");
+        segmentVisualGrid.style.gridTemplateRows = rowWeights.map((weight) => `minmax(0, ${Math.max(1, Number(weight) || 1)}fr)`).join(" ");
     }
 
     const segmentMap = new Map(segments.map((segment) => [segment.segment_id, segment]));
@@ -485,6 +496,8 @@ function renderSegmentButtons(segments, grid) {
             cell.type = "button";
             cell.className = `segment-visual-cell band-${segment.health_band || "na"}`;
             cell.dataset.segmentId = segment.segment_id;
+            cell.style.gridColumn = String(Number(segment.col || 1));
+            cell.style.gridRow = String(Number(segment.row || 1));
             cell.textContent = segment.empty ? "" : segment.segment_id;
             if (segment.empty) {
                 cell.classList.add("segment-visual-cell-empty");
@@ -619,6 +632,7 @@ function readInputsToState() {
     personalizationState.title = customTitleInput?.value.trim() || "";
     personalizationState.field_name = fieldNameInput?.value.trim() || "";
     personalizationState.crop_type = cropTypeInput?.value.trim() || "";
+    personalizationState.capture_altitude_m = captureAltitudeInput?.value || "";
     personalizationState.farmer_notes = notesInput?.value.trim() || "";
     personalizationState.recommendation_checks = collectCurrentRecommendationChecks();
 }
@@ -699,8 +713,9 @@ savePersonalizationButton?.addEventListener("click", async () => {
     await persistPersonalization("Personalization saved.");
 });
 
-[customTitleInput, fieldNameInput, cropTypeInput].forEach((el) => {
+[customTitleInput, fieldNameInput, cropTypeInput, captureAltitudeInput].forEach((el) => {
     el?.addEventListener("input", () => queueAutosave("Draft saved."));
+    el?.addEventListener("change", () => queueAutosave("Draft saved."));
 });
 
 notesInput?.addEventListener("input", () => queueAutosave("Draft saved."));

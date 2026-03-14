@@ -180,6 +180,7 @@ def default_result_personalization() -> dict[str, Any]:
         "title": "",
         "field_name": "",
         "crop_type": "",
+        "capture_altitude_m": "",
         "farmer_notes": "",
         "recommendation_checks": [],
         "flags": [],
@@ -194,6 +195,8 @@ def normalize_result_personalization(data: dict[str, Any] | None) -> dict[str, A
     base["title"] = str(data.get("title", "") or "")[:120]
     base["field_name"] = str(data.get("field_name", "") or "")[:120]
     base["crop_type"] = str(data.get("crop_type", "") or "")[:120]
+    altitude_value = str(data.get("capture_altitude_m", "") or "").strip()
+    base["capture_altitude_m"] = altitude_value if altitude_value in {"40", "60", "80", "100"} else ""
     base["farmer_notes"] = str(data.get("farmer_notes", "") or "")[:3000]
     base["recommendation_checks"] = [bool(v) for v in (data.get("recommendation_checks") or [])[:64]]
 
@@ -1020,6 +1023,33 @@ def _derive_adaptive_grid_dimensions(
     return rows, cols
 
 
+def _derive_mask_weighted_edges(mask_image: Any, parts: int, axis: str) -> list[int]:
+    mask = np.asarray(mask_image.convert("L"), dtype=np.uint8) > 0
+    length = mask.shape[1] if axis == "x" else mask.shape[0]
+    if parts <= 1 or length <= 1:
+        return [0, length]
+
+    occupancy = mask.sum(axis=0 if axis == "x" else 1).astype(np.float64)
+    if occupancy.sum() <= 0:
+        step = length / parts
+        edges = [0]
+        for idx in range(1, parts):
+            edges.append(min(length - 1, max(edges[-1] + 1, int(round(idx * step)))))
+        edges.append(length)
+        return edges
+
+    cumulative = np.cumsum(occupancy)
+    total = cumulative[-1]
+    edges = [0]
+    for idx in range(1, parts):
+        target = total * (idx / parts)
+        edge = int(np.searchsorted(cumulative, target, side="left")) + 1
+        edge = min(length - 1, max(edges[-1] + 1, edge))
+        edges.append(edge)
+    edges.append(length)
+    return edges
+
+
 def _order_quad_points(points: list[tuple[int, int]]) -> list[tuple[int, int]]:
     # Returns points in TL, TR, BR, BL order.
     if len(points) != 4:
@@ -1147,8 +1177,11 @@ def analyze_freeform_cropped_segments(
     bbox = analysis_mask.getbbox()
     if not bbox:
         raise RuntimeError("Invalid crop selection. Please draw a larger area.")
-    bbox_w = max(1, bbox[2] - bbox[0])
-    bbox_h = max(1, bbox[3] - bbox[1])
+
+    analysis_rgb = analysis_rgb.crop(bbox)
+    analysis_mask = analysis_mask.crop(bbox)
+    bbox_w = max(1, analysis_rgb.size[0])
+    bbox_h = max(1, analysis_rgb.size[1])
 
     masked_original = analysis_rgb.convert("RGBA")
     masked_original.putalpha(analysis_mask)
@@ -1175,17 +1208,17 @@ def analyze_freeform_cropped_segments(
     adaptive_rows, adaptive_cols = _derive_adaptive_grid_dimensions(requested_cells, bbox_w, bbox_h)
 
     analysis_width, analysis_height = analysis_rgb.size
-    cell_w = max(analysis_width // adaptive_cols, 1)
-    cell_h = max(analysis_height // adaptive_rows, 1)
+    col_edges = _derive_mask_weighted_edges(analysis_mask, adaptive_cols, "x")
+    row_edges = _derive_mask_weighted_edges(analysis_mask, adaptive_rows, "y")
     segments: list[dict[str, Any]] = []
 
     segment_index = 1
     for row in range(adaptive_rows):
         for col in range(adaptive_cols):
-            x0 = col * cell_w
-            y0 = row * cell_h
-            x1 = analysis_width if col == adaptive_cols - 1 else (col + 1) * cell_w
-            y1 = analysis_height if row == adaptive_rows - 1 else (row + 1) * cell_h
+            x0 = col_edges[col]
+            x1 = col_edges[col + 1]
+            y0 = row_edges[row]
+            y1 = row_edges[row + 1]
             if x1 <= x0 or y1 <= y0:
                 continue
 
@@ -1323,7 +1356,12 @@ def analyze_freeform_cropped_segments(
         "cropped_original_data_url": _pil_image_to_data_url(masked_original, "PNG"),
         "cropped_heatzone_data_url": _pil_image_to_data_url(heatzone, "PNG"),
         "segments": segments,
-        "grid": {"rows": adaptive_rows, "cols": adaptive_cols},
+        "grid": {
+            "rows": adaptive_rows,
+            "cols": adaptive_cols,
+            "row_weights": [max(1, row_edges[idx + 1] - row_edges[idx]) for idx in range(adaptive_rows)],
+            "col_weights": [max(1, col_edges[idx + 1] - col_edges[idx]) for idx in range(adaptive_cols)],
+        },
     }
 
 
@@ -1749,6 +1787,19 @@ def index():
     )
 
 
+@app.route("/tutorial")
+def tutorial_page():
+    if not require_auth():
+        return redirect(url_for("login_page"))
+
+    user = current_user()
+    return render_template(
+        "tutorial.html",
+        username=to_upper_text(user.get("username", ""), "USER"),
+        privilege=to_upper_text(user.get("privilege", ""), "USER"),
+    )
+
+
 @app.route("/results")
 def results_page():
     if not require_auth():
@@ -2151,6 +2202,7 @@ def upload_image():
         except OSError:
             pass
         add_upload_log(user_id, f"Upload succeeded ({stamped_name}) -> Result ID {image_id}", "success")
+        return redirect(url_for("result_view", image_id=image_id))
     except Exception as exc:
         add_upload_log(user_id, f"Upload failed: {exc}", "error")
 

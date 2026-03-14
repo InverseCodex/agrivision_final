@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AgriVision Tutorial</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Manrope:wght@200..800&family=Source+Sans+3:wght@200..900&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tutorial-page.css') }}">
+</head>
+<body>
+    <div class="tutorial-app">
+        <aside class="tutorial-sidebar">
+            <div class="tutorial-user-card">
+                <p class="tutorial-label">Guided Mode</p>
+                <h1>Website Tutorial</h1>
+                <p class="tutorial-user-name">{{ username }}</p>
+                <p class="tutorial-user-role">{{ privilege }}</p>
+            </div>
+
+            <div class="tutorial-progress-card">
+                <p class="tutorial-label" id="tutorial-step-label">Step 1 of 8</p>
+                <h2 id="tutorial-step-title">Open the Upload Image window</h2>
+                <p id="tutorial-step-body">This guided page recreates the actual website flow, starting with the Upload Image window used to begin a scan.</p>
+                <div class="tutorial-progress-bar">
+                    <span id="tutorial-progress-fill"></span>
+                </div>
+            </div>
+
+            <div class="tutorial-controls">
+                <button type="button" class="tutorial-btn secondary" id="tutorial-prev">Back</button>
+                <button type="button" class="tutorial-btn" id="tutorial-next">Next</button>
+            </div>
+
+            <div class="tutorial-exit-wrap">
+                <a class="tutorial-btn exit" href="/?window=upload">Exit Tutorial</a>
+            </div>
+        </aside>
+
+        <main class="tutorial-main">
+            <header class="tutorial-topbar">
+                <div>
+                    <p class="tutorial-label">Step-by-step demo</p>
+                    <h2>Learn the complete upload-to-result workflow like a game level</h2>
+                </div>
+                <a class="tutorial-btn exit" href="/?window=upload">Exit Tutorial</a>
+            </header>
+
+            <section class="tutorial-stage-strip" id="tutorial-stage-strip">
+                <button type="button" class="tutorial-stage-chip is-active" data-step-index="0">1. Upload Window</button>
+                <button type="button" class="tutorial-stage-chip" data-step-index="1">2. Choose Image</button>
+                <button type="button" class="tutorial-stage-chip" data-step-index="2">3. Send Upload</button>
+                <button type="button" class="tutorial-stage-chip" data-step-index="3">4. Results Window</button>
+                <button type="button" class="tutorial-stage-chip" data-step-index="4">5. Open Result</button>
+                <button type="button" class="tutorial-stage-chip" data-step-index="5">6. Segment Tools</button>
+                <button type="button" class="tutorial-stage-chip" data-step-index="6">7. Recommendations</button>
+                <button type="button" class="tutorial-stage-chip" data-step-index="7">8. Advanced Data</button>
+            </section>
+
+            <section class="tutorial-scene-grid">
+                <article class="tutorial-panel tutorial-window is-highlighted" id="scene-upload">
+                    <div class="tutorial-window-header">
+                        <div>
+                            <p class="tutorial-kicker">Window 1</p>
+                            <h3>Upload Image</h3>
+                        </div>
+                        <span class="tutorial-window-pill">Start Here</span>
+                    </div>
+                    <p class="tutorial-window-copy">This duplicated window teaches the same first step as the real dashboard: add a field image, preview it, then send it for analysis.</p>
+
+                    <div class="tutorial-real-shell dashboard-shell">
+                        <aside class="tutorial-real-sidebar">
+                            <div class="tutorial-real-user">
+                                <div class="tutorial-avatar"></div>
+                                <div>
+                                    <strong>{{ username }}</strong>
+                                    <span>{{ privilege }}</span>
+                                </div>
+                            </div>
+                            <button class="tutorial-real-nav is-active">Upload Images</button>
+                            <button class="tutorial-real-nav">View Results</button>
+                            <button class="tutorial-real-nav">Settings</button>
+                            <button class="tutorial-real-nav">Tutorial</button>
+                        </aside>
+
+                        <div class="tutorial-real-content">
+                            <div class="tutorial-real-header">
+                                <h3>Upload Image</h3>
+                                <p>This is where you upload your images for analysis.</p>
+                            </div>
+
+                            <div class="tutorial-real-api">
+                                <div>
+                                    <h4>User API</h4>
+                                    <p>Copy this code to be used for automatic transmission</p>
+                                </div>
+                                <div class="tutorial-api-key">AGRI-USER-KEY-2847</div>
+                            </div>
+
+                            <div class="tutorial-real-upload-box">
+                                <h4>Manually Upload Images</h4>
+                                <div class="tutorial-real-upload-layout">
+                                    <section class="tutorial-card tutorial-real-form" data-tutorial-target="upload-dropzone">
+                                        <div class="tutorial-dropzone-art">
+                                            <div class="tutorial-dropzone-icon"></div>
+                                            <strong>Drop image here</strong>
+                                            <p>or click to browse files</p>
+                                        </div>
+
+                                        <div class="tutorial-file-meta" data-tutorial-target="upload-fileinfo">
+                                            <p class="tutorial-card-label">Selected file</p>
+                                            <strong>corn-field-sample.jpg</strong>
+                                            <span>2.84 MB</span>
+                                        </div>
+
+                                        <div class="tutorial-upload-hints">
+                                            <span>Formats: JPG, PNG, WEBP</span>
+                                            <span>Maximum file size: 10 MB</span>
+                                        </div>
+
+                                        <div class="tutorial-button-row" data-tutorial-target="upload-submit">
+                                            <span class="mini-btn primary">Upload Image</span>
+                                            <span class="mini-btn secondary">Clear</span>
+                                        </div>
+                                        <p class="tutorial-status-line">Image ready to upload.</p>
+                                    </section>
+
+                                    <section class="tutorial-card tutorial-real-preview" data-tutorial-target="upload-preview">
+                                        <div class="tutorial-image-preview"></div>
+                                        <p>Preview appears here after selecting an image.</p>
+                                    </section>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="tutorial-panel tutorial-window" id="scene-results">
+                    <div class="tutorial-window-header">
+                        <div>
+                            <p class="tutorial-kicker">Window 2</p>
+                            <h3>View Results</h3>
+                        </div>
+                        <span class="tutorial-window-pill">Review Output</span>
+                    </div>
+                    <p class="tutorial-window-copy">This duplicated results window shows where processed scans appear after upload. Users can search, filter, sort, and open a detailed result page.</p>
+
+                    <div class="tutorial-real-shell dashboard-shell">
+                        <aside class="tutorial-real-sidebar">
+                            <div class="tutorial-real-user">
+                                <div class="tutorial-avatar"></div>
+                                <div>
+                                    <strong>{{ username }}</strong>
+                                    <span>{{ privilege }}</span>
+                                </div>
+                            </div>
+                            <button class="tutorial-real-nav">Upload Images</button>
+                            <button class="tutorial-real-nav is-active">View Results</button>
+                            <button class="tutorial-real-nav">Settings</button>
+                            <button class="tutorial-real-nav">Tutorial</button>
+                        </aside>
+
+                        <div class="tutorial-real-content">
+                            <div class="tutorial-real-header">
+                                <h3>View Results</h3>
+                                <p>Open a result to view original image, heatzone, and farmer-friendly analysis.</p>
+                            </div>
+
+                            <div class="tutorial-filter-row" data-tutorial-target="results-filters">
+                                <span>Search by Result ID...</span>
+                                <span>All Bands</span>
+                                <span>Newest First</span>
+                            </div>
+
+                            <article class="tutorial-result-card tutorial-result-card-real" data-tutorial-target="results-card">
+                                <div class="tutorial-result-thumb"></div>
+                                <div class="tutorial-result-copy">
+                                    <h4>North Plot Morning Scan</h4>
+                                    <p>Healthy center rows with stressed corners and watch areas near the lower-left edge.</p>
+                                    <p>2026-03-13 09:42 | Band: WATCH</p>
+                                    <div class="tutorial-button-row">
+                                        <span class="mini-btn primary">Open Result</span>
+                                        <span class="mini-btn secondary">PDF</span>
+                                        <span class="mini-btn secondary">Delete</span>
+                                    </div>
+                                </div>
+                            </article>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="tutorial-panel tutorial-window tutorial-result-layout" id="scene-result-view">
+                    <div class="tutorial-window-header">
+                        <div>
+                            <p class="tutorial-kicker">Window 3</p>
+                            <h3>Result View Tutorial Version</h3>
+                        </div>
+                        <span class="tutorial-window-pill">Section Guide</span>
+                    </div>
+                    <p class="tutorial-window-copy">This tutorial version explains every major section inside the real `View Result` page, so users understand what each area does before using actual data.</p>
+
+                    <div class="tutorial-result-page">
+                        <header class="tutorial-result-topbar">
+                            <span class="mini-btn secondary">Back to Results</span>
+                            <h4>North Plot Morning Scan</h4>
+                            <div class="tutorial-button-row">
+                                <span class="mini-btn primary">Download PDF</span>
+                                <span class="mini-btn secondary">Re-run Analysis</span>
+                            </div>
+                        </header>
+
+                        <div class="tutorial-result-page-layout">
+                            <section class="tutorial-card tutorial-section-card" data-tutorial-target="result-crop">
+                                <p class="tutorial-card-label">Section 1</p>
+                                <h4>Crop & Segment Analysis</h4>
+                                <p class="tutorial-section-copy">Users draw around the farm area, rerun the selected crop only, and focus the analysis on a chosen region.</p>
+                                <div class="tutorial-crop-board">
+                                    <div class="tutorial-toolbar-row">
+                                        <span class="mini-btn secondary">Reset Shape</span>
+                                        <span class="mini-btn secondary">Clear Results</span>
+                                        <span class="mini-btn primary">Analyze Cropped Area</span>
+                                    </div>
+                                    <div class="tutorial-crop-art"></div>
+                                    <p class="tutorial-status-line">Drag any corner point to adjust the crop shape, then click Analyze Cropped Area.</p>
+                                </div>
+                            </section>
+
+                            <section class="tutorial-card tutorial-section-card" data-tutorial-target="result-segment-rec">
+                                <p class="tutorial-card-label">Section 2</p>
+                                <h4>Specific Segment Recommendation</h4>
+                                <p class="tutorial-section-copy">After selecting a segment from the cropped result, this panel explains the exact issue and recommended action for that spot.</p>
+                                <div class="tutorial-heatzone-art"></div>
+                                <p><strong>Selected Segment:</strong> B3</p>
+                                <p><strong>Recommendation:</strong> Check water delivery on the lower edge.</p>
+                            </section>
+
+                            <section class="tutorial-card tutorial-section-card" data-tutorial-target="result-personalization">
+                                <p class="tutorial-card-label">Section 3</p>
+                                <h4>Result Personalization</h4>
+                                <p class="tutorial-section-copy">Users can rename the result, assign a field name, set the crop type, and save a tag that makes future review easier.</p>
+                                <div class="tutorial-field-grid">
+                                    <span>Custom Result Title</span>
+                                    <span>Field Name</span>
+                                    <span>Crop Type</span>
+                                    <span>Quick Result Tag</span>
+                                </div>
+                                <span class="mini-btn secondary">Save Result Personalization</span>
+                            </section>
+
+                            <section class="tutorial-card tutorial-section-card" data-tutorial-target="result-recommendations">
+                                <p class="tutorial-card-label">Section 4</p>
+                                <h4>Results and Recommendation</h4>
+                                <p class="tutorial-section-copy">This area converts the analysis into a field-ready task board, shows progress, and stores notes about work already completed.</p>
+                                <div class="tutorial-kpi-grid">
+                                    <div class="tutorial-kpi-card"><span>Action Progress</span><strong>1 completed</strong></div>
+                                    <div class="tutorial-kpi-card"><span>Execution Style</span><strong>Field-ready task board</strong></div>
+                                </div>
+                                <div class="tutorial-recommendation-list">
+                                    <div class="tutorial-rec-item"><span class="priority high">HIGH</span><p>Inspect stressed corner rows for blockage.</p></div>
+                                    <div class="tutorial-rec-item"><span class="priority medium">MEDIUM</span><p>Review nutrient timing for the lower section.</p></div>
+                                </div>
+                                <div class="tutorial-notes-box">Add field notes about actions taken...</div>
+                            </section>
+
+                            <section class="tutorial-card tutorial-section-card" data-tutorial-target="result-features">
+                                <p class="tutorial-card-label">Section 5</p>
+                                <h4>Useful RGB Features</h4>
+                                <p class="tutorial-section-copy">This summary area shows the key values first, so the user can quickly understand field condition before opening deeper data.</p>
+                                <div class="tutorial-feature-grid">
+                                    <div><span>Green Coverage</span><strong>78%</strong></div>
+                                    <div><span>Stress Zone</span><strong>12%</strong></div>
+                                    <div><span>Vigor Score</span><strong>74/100</strong></div>
+                                    <div><span>Best Next Scan</span><strong>3 Days</strong></div>
+                                </div>
+                            </section>
+
+                            <section class="tutorial-card tutorial-section-card" data-tutorial-target="result-advanced">
+                                <p class="tutorial-card-label">Section 6</p>
+                                <h4>Advance Results</h4>
+                                <p class="tutorial-section-copy">This expandable technical section contains segment tables, deeper values, management-zone guidance, and extra metrics for users who want detailed review.</p>
+                                <div class="tutorial-button-row">
+                                    <span class="mini-btn primary">Advance Results</span>
+                                </div>
+                                <div class="tutorial-advanced-table">
+                                    <div><span>Segment</span><span>Health</span><span>Vigor</span></div>
+                                    <div><span>A1</span><span>82</span><span>High</span></div>
+                                    <div><span>B3</span><span>48</span><span>Low</span></div>
+                                    <div><span>C2</span><span>67</span><span>Medium</span></div>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                </article>
+            </section>
+
+            <section class="tutorial-guide-card">
+                <div class="tutorial-guide-header">
+                    <div>
+                        <p class="tutorial-label">Current objective</p>
+                        <h3 id="tutorial-guide-heading">Open the Upload Image window</h3>
+                    </div>
+                    <span class="tutorial-guide-badge" id="tutorial-guide-badge">Upload Window</span>
+                </div>
+                <p id="tutorial-guide-copy">This is the first screen most users see. It is used to choose an image and start analysis.</p>
+                <div class="tutorial-tip-list" id="tutorial-tip-list"></div>
+            </section>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/tutorial-page.js') }}" defer></script>
+</body>
+</html>

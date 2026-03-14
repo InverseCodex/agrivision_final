@@ -1,7 +1,25 @@
 (() => {
     const mobileBreakpoint = 700;
+    let sharedNavButtons = [];
+    let sharedContentWindows = [];
+
+    function dispatchWindowChange(button) {
+        if (!button) return;
+        const windowName = button.id.replace("-button", "");
+        document.dispatchEvent(
+            new CustomEvent("dashboard:windowchange", {
+                detail: { windowName }
+            })
+        );
+    }
 
     function setActiveWindowFromButton(button, navButtons, contentWindows) {
+        const navUrl = button.dataset.navUrl;
+        if (navUrl) {
+            window.location.href = navUrl;
+            return;
+        }
+
         const buttonId = button.id;
         const windowId = buttonId.replace("-button", "-window");
         const targetWindow = document.getElementById(windowId);
@@ -13,6 +31,21 @@
         if (targetWindow) {
             targetWindow.classList.add("window-active");
         }
+        dispatchWindowChange(button);
+    }
+
+    function setActiveWindowByName(windowName) {
+        if (!windowName || !sharedNavButtons.length || !sharedContentWindows.length) {
+            return;
+        }
+
+        const targetButton = document.getElementById(`${windowName}-button`);
+        if (!targetButton) {
+            return;
+        }
+
+        setActiveWindowFromButton(targetButton, sharedNavButtons, sharedContentWindows);
+        closeMobileNav();
     }
 
     function closeMobileNav() {
@@ -34,13 +67,20 @@
     }
 
     function initializeNavbarButtons() {
-        const navButtons = document.querySelectorAll(".navbar-button");
-        const contentWindows = document.querySelectorAll(".content-window");
+        const navButtons = Array.from(document.querySelectorAll(".navbar-button"));
+        const contentWindows = Array.from(document.querySelectorAll(".content-window"));
         const mobileNavToggle = document.getElementById("mobile-nav-toggle");
         const navbarOverlay = document.getElementById("navbar-overlay");
         if (!navButtons.length || !contentWindows.length) {
             return;
         }
+
+        sharedNavButtons = navButtons;
+        sharedContentWindows = contentWindows;
+        window.dashboardNavigation = {
+            setActiveWindow: setActiveWindowByName,
+            closeMobileNav
+        };
 
         const initialActiveButton =
             (function resolveInitialButton() {

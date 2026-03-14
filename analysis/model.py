@@ -76,13 +76,48 @@ class VegetationJudgeModel:
 
     @staticmethod
     def _band(score: float) -> str:
-        if score >= 0.75:
+        if score >= 0.72:
             return "healthy"
-        if score >= 0.55:
+        if score >= 0.50:
             return "watch"
-        if score >= 0.35:
+        if score >= 0.30:
             return "stressed"
         return "critical"
+
+    @staticmethod
+    def _rgb_healthy_bias(
+        weighted_score: float,
+        gli: float,
+        exg: float,
+        green_coverage: float,
+        dry_coverage: float,
+        is_dji_mini_4_pro: bool,
+    ) -> float:
+        bias = 0.0
+
+        if 0.0 <= green_coverage <= 1.0:
+            if green_coverage >= 0.60:
+                bias += 0.09
+            elif green_coverage >= 0.50:
+                bias += 0.07
+            elif green_coverage >= 0.40:
+                bias += 0.04
+
+        if gli >= 0.08:
+            bias += 0.02
+        elif gli >= 0.03:
+            bias += 0.01
+
+        if exg >= 0.08:
+            bias += 0.02
+        elif exg >= 0.03:
+            bias += 0.01
+
+        if 0.0 <= dry_coverage <= 1.0 and dry_coverage >= 0.35:
+            bias -= 0.03
+
+        max_bias = 0.13 if is_dji_mini_4_pro else 0.10
+        return weighted_score + max(-0.03, min(max_bias, bias))
 
     @staticmethod
     def _is_mature_stage(growth_stage: str) -> bool:
@@ -179,6 +214,15 @@ class VegetationJudgeModel:
         if 0.0 <= green_coverage <= 1.0:
             weighted_score = (weighted_score * 0.8) + (green_coverage * 0.2)
 
+        weighted_score = self._rgb_healthy_bias(
+            weighted_score=weighted_score,
+            gli=gli,
+            exg=exg,
+            green_coverage=green_coverage,
+            dry_coverage=dry_coverage,
+            is_dji_mini_4_pro=is_dji_mini_4_pro,
+        )
+
         if 0.0 <= dry_coverage <= 1.0 and 0.0 <= green_coverage <= 1.0:
             mature_canopy_signal = (dry_coverage >= 0.35 and green_coverage <= 0.35)
             if mature_canopy_signal:
@@ -213,7 +257,7 @@ class VegetationJudgeModel:
         weak_green_threshold = 0.02 if is_dji_mini_4_pro else 0.05
         thin_canopy_threshold = 0.03 if is_dji_mini_4_pro else 0.05
         weak_signal_threshold = 0.02 if is_dji_mini_4_pro else 0.05
-        sparse_cover_threshold = 0.30 if is_dji_mini_4_pro else 0.45
+        sparse_cover_threshold = 0.24 if is_dji_mini_4_pro else 0.38
 
         if mature_override:
             findings.append("Canopy color is consistent with maturity or harvest stage more than acute stress.")
