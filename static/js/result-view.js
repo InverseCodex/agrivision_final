@@ -61,8 +61,12 @@ const recSegReco = document.getElementById("rec-seg-reco");
 
 const initialPersonalizationEl = document.getElementById("initial-personalization");
 const savedTheme = localStorage.getItem("site_theme") || "default";
+const motionEnabled = localStorage.getItem("site_motion_enabled");
 if (["default", "neon", "minimalist"].includes(savedTheme)) {
     document.body.setAttribute("data-theme", savedTheme);
+}
+if (motionEnabled === "false") {
+    document.body.classList.add("reduce-motion");
 }
 
 const resultId =

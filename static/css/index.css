@@ -13,6 +13,8 @@
     --muted: #BFCFC3;
     --text: #E6F1EC;
     --api-bg: #E9F9F2;
+    --glow-ring: rgba(31, 168, 122, 0.7);
+    --glow-soft: rgba(31, 168, 122, 0.18);
 }
 
 body[data-theme="neon"] {
@@ -25,6 +27,8 @@ body[data-theme="neon"] {
     --muted: #D8CCFF;
     --text: #F5EEFF;
     --api-bg: #E7FEFA;
+    --glow-ring: rgba(0, 245, 212, 0.8);
+    --glow-soft: rgba(0, 187, 249, 0.2);
 }
 
 body[data-theme="minimalist"] {
@@ -37,6 +41,24 @@ body[data-theme="minimalist"] {
     --muted: #4B5963;
     --text: #182126;
     --api-bg: #EDF3F7;
+    --glow-ring: rgba(42, 111, 151, 0.65);
+    --glow-soft: rgba(42, 111, 151, 0.16);
+}
+
+@keyframes rotateBorderGlow {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@keyframes softHaloPulse {
+    0%, 100% { opacity: 0.35; transform: scale(0.98); }
+    50% { opacity: 0.7; transform: scale(1.02); }
+}
+
+@keyframes clickFlash {
+    0% { opacity: 0; transform: scale(0.9); }
+    50% { opacity: 0.45; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.12); }
 }
 
 /* Body CSS */
@@ -63,6 +85,9 @@ body {
     background: linear-gradient(180deg, var(--card) 0%, var(--panel) 100%);
     color: var(--text);
     cursor: pointer;
+    overflow: hidden;
+    isolation: isolate;
+    transition: transform 0.18s ease, box-shadow 0.22s ease, border-color 0.22s ease;
 }
 
 .mobile-nav-toggle ion-icon {
@@ -206,6 +231,8 @@ body {
     cursor: pointer;
     position: relative;
     z-index: 2;
+    overflow: hidden;
+    isolation: isolate;
 }
 
 .not-admin {
@@ -222,7 +249,7 @@ body {
 .navbar-button:hover { 
         background-color: rgba(255,255,255,0.06);
         border-color: rgba(255, 255, 255, 0.14);
-        box-shadow: 0 8px 14px rgba(0, 0, 0, 0.22);
+        box-shadow: 0 8px 14px rgba(0, 0, 0, 0.22), 0 0 22px var(--glow-soft);
         transform: translateY(-1px);
 }
 
@@ -253,12 +280,15 @@ body {
     color: var(--text);
     font-weight: 800;
     cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
 }
 
 .logout-button:hover {
     background: linear-gradient(90deg, var(--accent), var(--accent-dark));
     transform: translateY(-1px);
-    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.24);
+    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.24), 0 0 24px var(--glow-soft);
 }
 
 /* Content Window */
@@ -294,7 +324,6 @@ body {
 
 /* Make inner panels/card-like so they stand out */
 .content-window,
-.api-container,
 .upload-container {
     border: 1px solid rgba(255,255,255,0.06);
     box-shadow: 0 14px 30px rgba(2,10,6,0.5), 0 1px 0 rgba(255, 255, 255, 0.07) inset, 0 0 18px rgba(31,168,122,0.03);
@@ -331,6 +360,74 @@ body {
 .image-preview {
     border: 1px solid rgba(255,255,255,0.08);
     box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35), 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+}
+
+.upload-form,
+.image-preview,
+.result-card,
+.setting-group,
+.help-feature-card,
+.tutorial-banner,
+.tutorial-progress-panel,
+.tutorial-story-card,
+.tutorial-preview-frame {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+.upload-form::before,
+.image-preview::before,
+.result-card::before,
+.setting-group::before,
+.help-feature-card::before,
+.tutorial-banner::before,
+.tutorial-progress-panel::before,
+.tutorial-story-card::before,
+.tutorial-preview-frame::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: conic-gradient(from 0deg, transparent 0deg, var(--glow-ring) 70deg, transparent 145deg, transparent 220deg, rgba(255, 255, 255, 0.45) 280deg, transparent 360deg);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    animation: rotateBorderGlow 8s linear infinite;
+    transition: opacity 0.28s ease;
+    pointer-events: none;
+}
+
+.upload-form::after,
+.image-preview::after,
+.result-card::before,
+.setting-group::after,
+.help-feature-card::after {
+    content: "";
+    position: absolute;
+    inset: -18%;
+    background: radial-gradient(circle, var(--glow-soft) 0%, transparent 62%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+}
+
+.upload-form:hover::before,
+.upload-form:hover::after,
+.image-preview:hover::before,
+.image-preview:hover::after,
+.result-card:hover::before,
+.setting-group:hover::before,
+.setting-group:hover::after,
+.help-feature-card:hover::before,
+.help-feature-card:hover::after,
+.tutorial-banner:hover::before,
+.tutorial-progress-panel:hover::before,
+.tutorial-story-card:hover::before,
+.tutorial-preview-frame:hover::before {
+    opacity: 1;
 }
 
 .window-active {
@@ -473,13 +570,16 @@ body {
     background: linear-gradient(160deg, rgba(31, 168, 122, 0.08), rgba(31, 168, 122, 0.015));
     cursor: pointer;
     transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
 }
 
 .upload-dropzone:hover,
 .upload-dropzone:focus-visible {
     border-color: var(--accent);
     transform: translateY(-2px);
-    box-shadow: 0 0 0 2px rgba(31, 168, 122, 0.2), 0 16px 24px rgba(0, 0, 0, 0.24);
+    box-shadow: 0 0 0 2px rgba(31, 168, 122, 0.2), 0 16px 24px rgba(0, 0, 0, 0.24), 0 0 26px var(--glow-soft);
     outline: none;
 }
 
@@ -508,7 +608,8 @@ body {
     place-items: center;
     background: linear-gradient(140deg, var(--accent), var(--accent-dark));
     color: #fff;
-    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3), 0 0 20px var(--glow-soft);
+    animation: softHaloPulse 3s ease-in-out infinite;
 }
 
 .dropzone-icon ion-icon {
@@ -609,15 +710,21 @@ body {
     border-radius: 0.75rem;
     font-weight: 800;
     cursor: pointer;
-    transition: transform .15s ease, box-shadow .15s ease;
+    transition: transform .15s ease, box-shadow .15s ease, filter .18s ease;
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
 }
 
 .upload-btn:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.35), 0 0 24px var(--glow-soft);
+    filter: brightness(1.05);
 }
 
-.upload-btn:active { transform: translateY(0); }
+.upload-btn:active {
+    transform: translateY(1px) scale(0.98);
+}
 
 .upload-btn:disabled {
     cursor: not-allowed;
@@ -732,7 +839,7 @@ body {
 .result-card:hover {
     transform: translateY(-4px);
     border-color: var(--accent);
-    box-shadow: 0 14px 24px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(31, 168, 122, 0.2);
+    box-shadow: 0 14px 24px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(31, 168, 122, 0.2), 0 0 26px var(--glow-soft);
 }
 
 .result-card::after {
@@ -822,12 +929,15 @@ body {
     font-weight: 700;
     font-size: 0.78rem;
     transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
 }
 
 .result-open-link:hover {
     transform: translateY(-1px);
     filter: brightness(1.06);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2), 0 8px 15px rgba(0, 0, 0, 0.22);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2), 0 8px 15px rgba(0, 0, 0, 0.22), 0 0 22px var(--glow-soft);
 }
 
 .result-actions {
@@ -854,12 +964,15 @@ body {
     font-size: 0.78rem;
     cursor: pointer;
     transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
 }
 
 .result-delete-btn:hover {
     transform: translateY(-1px);
     filter: brightness(1.08);
-    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.22);
+    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.22), 0 0 22px rgba(193, 40, 76, 0.25);
 }
 
 .result-delete-btn[disabled] {
@@ -1640,12 +1753,68 @@ body[data-theme="minimalist"] .upload-btn {
     padding: 0.45rem 0.75rem;
     cursor: pointer;
     font-weight: 700;
+    transition: transform 0.18s ease, box-shadow 0.2s ease, border-color 0.2s ease, filter 0.18s ease;
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+.theme-option:hover {
+    transform: translateY(-1px);
+    border-color: var(--accent);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18), 0 0 18px var(--glow-soft);
+    filter: brightness(1.04);
 }
 
 .theme-option.theme-option-active {
     background: linear-gradient(90deg, var(--accent), var(--accent-dark));
     border-color: transparent;
     color: #fff;
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22), 0 0 20px var(--glow-soft);
+}
+
+.mobile-nav-toggle:hover,
+.navbar-button:hover,
+.logout-button:hover,
+.upload-btn:hover,
+.result-open-link:hover,
+.result-delete-btn:hover,
+.theme-option:hover {
+    will-change: transform, box-shadow;
+}
+
+.mobile-nav-toggle:active,
+.navbar-button:active,
+.logout-button:active,
+.result-open-link:active,
+.result-delete-btn:active,
+.theme-option:active {
+    transform: translateY(1px) scale(0.98);
+}
+
+.mobile-nav-toggle::after,
+.navbar-button::after,
+.logout-button::after,
+.upload-btn::after,
+.result-open-link::after,
+.result-delete-btn::after,
+.theme-option::after {
+    content: "";
+    position: absolute;
+    inset: -35%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.28) 0%, transparent 58%);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.mobile-nav-toggle:active::after,
+.navbar-button:active::after,
+.logout-button:active::after,
+.upload-btn:active::after,
+.result-open-link:active::after,
+.result-delete-btn:active::after,
+.theme-option:active::after {
+    animation: clickFlash 0.4s ease-out;
 }
 
 .settings-form {

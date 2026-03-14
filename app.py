@@ -512,6 +512,21 @@ def create_heatzone_image(original_path: Path, output_path: Path) -> tuple[float
         return float(mask_critical.mean()), float(score.mean())
 
 
+def _prepare_rgb_for_analysis(source_image: Any, max_dimension: int = ANALYSIS_MAX_DIMENSION) -> Any:
+    from PIL import ImageEnhance, ImageFilter, ImageOps
+
+    rgb = ImageOps.exif_transpose(source_image).convert("RGB")
+    if max(rgb.size) > max_dimension:
+        rgb.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
+
+    # Keep enhancement conservative so RGB proxy relationships remain usable.
+    rgb = ImageOps.autocontrast(rgb, cutoff=1)
+    rgb = ImageEnhance.Contrast(rgb).enhance(1.04)
+    rgb = ImageEnhance.Color(rgb).enhance(1.02)
+    rgb = rgb.filter(ImageFilter.UnsharpMask(radius=0.8, percent=60, threshold=3))
+    return rgb
+
+
 def run_rgb_analysis(original_path: Path, user_id: str, image_id: str) -> dict[str, Any]:
     camera_model = "DJI Mini 4 Pro"
     try:
@@ -537,10 +552,7 @@ def run_rgb_analysis(original_path: Path, user_id: str, image_id: str) -> dict[s
         dry_coverage = float(_dry_canopy_mask(r, g, b).mean())
     else:
         with Image.open(original_path) as im:
-            rgb = im.convert("RGB")
-            if max(rgb.size) > ANALYSIS_MAX_DIMENSION:
-                rgb.thumbnail((ANALYSIS_MAX_DIMENSION, ANALYSIS_MAX_DIMENSION), Image.Resampling.LANCZOS)
-
+            rgb = _prepare_rgb_for_analysis(im)
             rgb_np = np.asarray(rgb, dtype=np.float32)
             r = rgb_np[:, :, 0]
             g = rgb_np[:, :, 1]
