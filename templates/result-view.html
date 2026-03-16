@@ -1,15 +1,18 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Result View</title>
+    <title>{{ personalization.title or ('Result ' ~ result.image_id) }} | AgriVision</title>
+    <meta name="description" content="Detailed AgriVision crop analysis result with crop selection, recommendations, and RGB vegetation metrics.">
+    <meta name="robots" content="noindex,nofollow">
+    <link rel="canonical" href="{{ canonical_url }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/result-view.css') }}">
 </head>
 <body>
     <header class="result-topbar">
-        <a href="/?window=results" class="back-link">Back to Results</a>
+        <a href="/dashboard?window=results" class="back-link">Back to Results</a>
         <h1 id="result-title">{{ personalization.title or ('Result ' ~ result.image_id) }}</h1>
         <div class="topbar-actions">
             <a class="pdf-btn" href="/results/{{ result.image_id }}/report.pdf">Download PDF</a>
@@ -50,14 +53,25 @@
 
                 <div class="crop-output-pane">
                     <div class="crop-output-toolbar">
+                        <div class="seg-view-toggle" role="group" aria-label="Segment image view">
+                            <button id="segment-view-original" class="viewer-btn" type="button">Original</button>
+                            <button id="segment-view-heatzone" class="viewer-btn viewer-btn-active" type="button">AI Image</button>
+                        </div>
+                        <button id="toggle-focus-mode" class="viewer-btn" type="button" aria-pressed="false" aria-controls="segment-focus-modal">Advanced Mode</button>
                         <button id="show-crop-tool" class="viewer-btn" type="button">Adjust Crop</button>
                     </div>
                     <div class="crop-preview-grid">
                         <div class="crop-preview-card">
-                            <h3>Cropped Heatzone</h3>
-                            <div class="segment-visual-frame" id="segment-visual-frame">
+                            <h3>Segment View</h3>
+                            <div class="segment-visual-frame is-heatzone" id="segment-visual-frame">
+                                <img id="cropped-original-preview" alt="Cropped original preview">
                                 <img id="cropped-heatzone-preview" alt="Cropped heatzone preview">
                                 <div id="segment-visual-grid" class="segment-visual-grid"></div>
+                            </div>
+                            <div class="segment-mask-legend" aria-label="Segment damage legend">
+                                <span class="legend-pill legend-critical">Red - Critical/Damaged</span>
+                                <span class="legend-pill legend-likely">Orange - Likely Damaged</span>
+                                <span class="legend-pill legend-healthy">Green - Healthy</span>
                             </div>
                         </div>
                     </div>
@@ -93,7 +107,7 @@
                             </div>
                             <div class="feature-card">
                                 <h3>Quick Result Tag</h3>
-                                <p id="quick-tag-display">{{ analysis.report.model_result.health_band|upper if analysis and analysis.report and analysis.report.model_result else 'WATCH' }}</p>
+                                <p id="quick-tag-display">Select a segment</p>
                             </div>
                         </div>
                         <button id="save-personalization-btn" class="viewer-btn save-personalization-btn" type="button">Save Result Personalization</button>
@@ -146,12 +160,60 @@
 
         <section class="features-panel">
             <div class="features-panel-header">
-                <h2>Useful RGB Features</h2>
-                <button id="toggle-advanced-results" class="viewer-btn" type="button" aria-expanded="false" aria-controls="advanced-results-content">Advance Results</button>
+                <h2>Advanced Results</h2>
+                <button id="toggle-advanced-results" class="viewer-btn" type="button" aria-expanded="false" aria-controls="advanced-results-content">Show Advanced Results</button>
             </div>
-            <p class="advanced-results-hint">Advanced data is hidden for a cleaner view. Click <strong>Advance Results</strong> to open it.</p>
+            <p class="advanced-results-hint">Advanced data is hidden for a cleaner view. Click <strong>Show Advanced Results</strong> to open it.</p>
             <div id="advanced-results-content" class="advanced-results-content">
             {% if analysis %}
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <h3>Vegetation Damage Prediction</h3>
+                        <p>{{ analysis.report.model_result.health_band|replace('_', ' ')|upper if analysis.report and analysis.report.model_result else '-' }}</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Prediction Confidence</h3>
+                        <p>{{ ((analysis.report.model_result.confidence or 0) * 100)|round(2) if analysis.report and analysis.report.model_result else '-' }}%</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Prediction Probability</h3>
+                        <p id="adv-prediction-probability">{{ ((analysis.report.model_result.probability or 0) * 100)|round(2) if analysis.report and analysis.report.model_result else '-' }}%</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Model Features Used</h3>
+                        <p>TGI: {{ analysis.report.model_result.feature_values.tgi if analysis.report and analysis.report.model_result and analysis.report.model_result.feature_values is defined else '-' }}</p>
+                        <p>Std G: {{ analysis.report.model_result.feature_values.std_g if analysis.report and analysis.report.model_result and analysis.report.model_result.feature_values is defined else '-' }}</p>
+                        <p>Uniformity: {{ analysis.report.model_result.feature_values.stand_uniformity_score if analysis.report and analysis.report.model_result and analysis.report.model_result.feature_values is defined else '-' }}</p>
+                    </div>
+                </div>
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <h3>Healthy Probability</h3>
+                        <p id="adv-healthy-probability">{{ ((analysis.report.model_result.healthy_probability or 0) * 100)|round(2) if analysis.report and analysis.report.model_result else '-' }}%</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Unhealthy/Damaged Probability</h3>
+                        <p id="adv-unhealthy-probability">{{ ((analysis.report.model_result.unhealthy_damaged_probability or 0) * 100)|round(2) if analysis.report and analysis.report.model_result else '-' }}%</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Maturity Result</h3>
+                        <p id="adv-maturity-label">{{ analysis.report.model_result.maturity_label|replace('_', ' ')|upper if analysis.report and analysis.report.model_result else '-' }}</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Maturity Probability</h3>
+                        <p id="adv-maturity-probability">{{ ((analysis.report.model_result.maturity_probability or 0) * 100)|round(2) if analysis.report and analysis.report.model_result else '-' }}%</p>
+                    </div>
+                </div>
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <h3>Decision Threshold</h3>
+                        <p id="adv-threshold">{{ analysis.report.model_result.threshold if analysis.report and analysis.report.model_result else '-' }}</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Model Findings</h3>
+                        <p id="adv-model-findings">{{ analysis.report.model_result.main_findings|join(' ') if analysis.report and analysis.report.model_result and analysis.report.model_result.main_findings is defined else '-' }}</p>
+                    </div>
+                </div>
                 <div class="feature-grid">
                     <div class="feature-card">
                         <h3>Green Coverage</h3>
@@ -272,6 +334,36 @@
         </section>
 
     </main>
+
+    <div id="segment-focus-modal" class="segment-focus-modal" hidden aria-hidden="true">
+        <div id="segment-focus-backdrop" class="segment-focus-backdrop"></div>
+        <div class="segment-focus-dialog" role="dialog" aria-modal="true" aria-labelledby="focus-segment-title">
+            <button id="close-focus-mode" class="viewer-btn segment-focus-close" type="button">Close</button>
+            <div class="segment-focus-head">
+                <h3>Advanced Mode</h3>
+                <p id="focus-segment-title">Select a segment to inspect it closely.</p>
+            </div>
+            <div class="segment-focus-grid">
+                <div class="segment-focus-card">
+                    <h4>Enlarged Segment View</h4>
+                    <p id="focus-segment-view-label" class="focus-segment-view-label">Current mode: AI Image</p>
+                    <div id="focus-segment-preview" class="focus-segment-preview">
+                        <span id="focus-segment-preview-empty">Select a segment to preview it.</span>
+                    </div>
+                </div>
+                <div class="segment-focus-card">
+                    <h4>Segment Snapshot</h4>
+                    <div id="focus-parameter-list" class="focus-parameter-list"></div>
+                </div>
+                <div class="segment-focus-card">
+                    <h4>Recommendations</h4>
+                    <ul id="focus-recommendation-list" class="focus-recommendation-list">
+                        <li>Select a segment to load guidance.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script id="initial-personalization" type="application/json">{{ personalization|tojson }}</script>
     <script src="{{ url_for('static', filename='js/result-view.js') }}" defer></script>

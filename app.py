@@ -20,7 +20,16 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-from analysis import FieldContext, RGBSnapshot, interpret_field_from_rgb, rgb_to_vegetation_proxies
+from analysis import (
+    FieldContext,
+    RGBSnapshot,
+    interpret_field_from_rgb,
+    predict_maturity_from_path,
+    predict_maturity_from_rgb,
+    predict_vegetation_damage_from_path,
+    predict_vegetation_damage_from_rgb,
+    rgb_to_vegetation_proxies,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
@@ -49,6 +58,10 @@ CACHED_MEDIA_ROOT = BASE_DIR / "static" / "cache"
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif", "bmp"}
 ANALYSIS_MAX_DIMENSION = 1600
 CROP_SEGMENT_MIN_MASK_COVERAGE = 0.20
+CROP_SEGMENT_MAX_EMPTY_AREA_RATIO = 0.60
+CROP_SEGMENT_MIN_FILLED_AREA_RATIO = 0.40
+CROP_SEGMENT_EDGE_MIN_FILLED_AREA_RATIO = 0.75
+CROP_SEGMENT_EDGE_MIN_OCCUPIED_SPAN_RATIO = 0.55
 CROP_SEGMENT_MIN_VALID_PIXEL_RATIO = 0.35
 ORTHO_MAX_EDGE_PX = 1400
 ORTHO_MIN_EDGE_PX = 220
@@ -551,17 +564,13 @@ def create_heatzone_image(original_path: Path, output_path: Path) -> tuple[float
 
 
 def _prepare_rgb_for_analysis(source_image: Any, max_dimension: int = ANALYSIS_MAX_DIMENSION) -> Any:
-    from PIL import ImageEnhance, ImageFilter, ImageOps
+    from PIL import Image, ImageOps
 
     rgb = ImageOps.exif_transpose(source_image).convert("RGB")
     if max(rgb.size) > max_dimension:
         rgb.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
 
-    # Keep enhancement conservative so RGB proxy relationships remain usable.
-    rgb = ImageOps.autocontrast(rgb, cutoff=1)
-    rgb = ImageEnhance.Contrast(rgb).enhance(1.04)
-    rgb = ImageEnhance.Color(rgb).enhance(1.02)
-    rgb = rgb.filter(ImageFilter.UnsharpMask(radius=0.8, percent=60, threshold=3))
+    # Keep upload preprocessing lightweight to reduce latency and memory use.
     return rgb
 
 
@@ -611,12 +620,34 @@ def run_rgb_analysis(original_path: Path, user_id: str, image_id: str) -> dict[s
     )
     context = FieldContext(crop_name="Farm Crop", growth_stage="unknown", rainfall_last_7d_mm=0.0, avg_temp_c=0.0)
     report = interpret_field_from_rgb(snapshot, context)
+    trained_prediction = predict_vegetation_damage_from_path(original_path)
+    maturity_prediction = predict_maturity_from_path(original_path)
+    summary, explanation = _trained_damage_summary(trained_prediction, maturity_prediction)
+    report_payload = asdict(report)
+    report_payload["one_line_summary"] = summary
+    report_payload["simple_explanation"] = explanation
     extended_indices = _compute_extended_rgb_indices(mean_r, mean_g, mean_b, green_coverage)
 
     temp_dir = ensure_temp_dir(user_id)
     heatzone_filename = f"{image_id}_heatzone.png"
     heatzone_path = temp_dir / heatzone_filename
     stress_ratio, avg_vigor = create_heatzone_image(original_path, heatzone_path)
+    weighted_health_score = _weighted_health_score(
+        vigor_score=round((avg_vigor + 1) * 50, 2),
+        biomass_score=round(extended_indices["relative_biomass_score"], 2),
+        canopy_score=round(extended_indices["canopy_cover_pct"], 2),
+        uniformity_score=round(extended_indices["stand_uniformity_score"], 2),
+    )
+    report_payload["model_result"] = _trained_damage_model_result(
+        trained_prediction,
+        health_score=weighted_health_score,
+        maturity_prediction=maturity_prediction,
+    )
+    report_payload["recommendations"] = _trained_damage_recommendations(
+        trained_prediction,
+        report_payload["model_result"].get("feature_values"),
+        maturity_prediction=maturity_prediction,
+    )
     zone = _management_zone_recommendation(extended_indices, stress_ratio=stress_ratio)
 
     analysis_payload = {
@@ -655,7 +686,8 @@ def run_rgb_analysis(original_path: Path, user_id: str, image_id: str) -> dict[s
             "stand_uniformity_score": round(extended_indices["stand_uniformity_score"], 2),
             "relative_yield_potential_pct": round(extended_indices["relative_yield_potential_pct"], 2),
         },
-        "report": asdict(report),
+        "vegetation_damage_model": report_payload["model_result"],
+        "report": report_payload,
     }
 
     return {
@@ -761,6 +793,226 @@ def _compute_extended_rgb_indices(mean_r: float, mean_g: float, mean_b: float, g
         "stand_uniformity_score": stand_uniformity_score,
         "relative_yield_potential_pct": relative_yield_potential_pct,
     }
+
+
+def _prediction_label_display(label: str) -> str:
+    return str(label or "").replace("_", " ").strip().upper() or "UNKNOWN"
+
+
+def _severity_adjusted_metric_score(value: float) -> float:
+    score = max(0.0, min(100.0, float(value)))
+    if score < 20.0:
+        return score * 0.68
+    if score < 35.0:
+        return score * 0.80
+    if score < 50.0:
+        return score * 0.90
+    if score > 90.0:
+        return min(100.0, score * 1.02)
+    return score
+
+
+def _weighted_health_score(
+    vigor_score: float,
+    biomass_score: float,
+    canopy_score: float,
+    uniformity_score: float,
+) -> float:
+    weights = {
+        "vigor": 0.38,
+        "biomass": 0.29,
+        "canopy": 0.21,
+        "uniformity": 0.12,
+    }
+    raw_scores = {
+        "vigor": max(0.0, min(100.0, float(vigor_score))),
+        "biomass": max(0.0, min(100.0, float(biomass_score))),
+        "canopy": max(0.0, min(100.0, float(canopy_score))),
+        "uniformity": max(0.0, min(100.0, float(uniformity_score))),
+    }
+    adjusted_scores = {
+        key: _severity_adjusted_metric_score(value)
+        for key, value in raw_scores.items()
+    }
+    weighted_score = sum(adjusted_scores[key] * weights[key] for key in weights)
+
+    severe_count = sum(1 for value in raw_scores.values() if value < 35.0)
+    weak_count = sum(1 for value in raw_scores.values() if value < 50.0)
+    if severe_count >= 2:
+        weighted_score -= 9.0
+    elif severe_count == 1:
+        weighted_score -= 4.5
+    elif weak_count >= 2:
+        weighted_score -= 3.0
+
+    if min(raw_scores.values()) < 25.0:
+        weighted_score -= 4.0
+
+    return round(max(0.0, min(100.0, weighted_score)), 2)
+
+
+def _trained_damage_model_result(
+    prediction: Any,
+    health_score: float | None = None,
+    maturity_prediction: Any | None = None,
+) -> dict[str, Any]:
+    feature_values = {
+        name: round(float(value), 6)
+        for name, value in (prediction.feature_values or {}).items()
+    }
+    maturity_positive = bool(
+        maturity_prediction is not None
+        and str(maturity_prediction.predicted_label or "") == "healthy_mature"
+    )
+    maturity_probability = round(float(getattr(maturity_prediction, "maturity_probability", 0.0)), 4) if maturity_prediction is not None else 0.0
+    return {
+        "health_score": round(float(health_score), 2) if health_score is not None else round(float(prediction.healthy_probability) * 100.0, 2),
+        "health_band": "mature" if maturity_positive else prediction.predicted_label,
+        "confidence": round(float(prediction.confidence), 4),
+        "probability": round(float(prediction.probability), 4),
+        "healthy_probability": round(float(prediction.healthy_probability), 4),
+        "unhealthy_damaged_probability": round(float(prediction.unhealthy_damaged_probability), 4),
+        "threshold": round(float(prediction.threshold), 4),
+        "maturity_label": "mature" if maturity_positive else "not_mature",
+        "maturity_probability": maturity_probability,
+        "maturity_threshold": round(float(getattr(maturity_prediction, "threshold", 0.0)), 4) if maturity_prediction is not None else 0.0,
+        "feature_values": feature_values,
+        "feature_names": list(prediction.feature_names or []),
+        "main_findings": [
+            f"Predicted label: {_prediction_label_display('mature' if maturity_positive else prediction.predicted_label)}",
+            f"Prediction confidence: {round(float(prediction.confidence) * 100.0, 2)}%",
+            f"Maturity probability: {round(maturity_probability * 100.0, 2)}%",
+            "Model features: "
+            + ", ".join(f"{name}={feature_values.get(name, 0.0)}" for name in prediction.feature_names or []),
+        ],
+    }
+
+
+def _trained_damage_summary(prediction: Any, maturity_prediction: Any | None = None) -> tuple[str, str]:
+    maturity_positive = bool(
+        maturity_prediction is not None
+        and str(maturity_prediction.predicted_label or "") == "healthy_mature"
+    )
+    label_display = _prediction_label_display("mature" if maturity_positive else prediction.predicted_label)
+    confidence_pct = round(float(prediction.confidence) * 100.0, 2)
+    maturity_pct = round(float(getattr(maturity_prediction, "maturity_probability", 0.0)) * 100.0, 2)
+    if maturity_positive:
+        summary = "Farm Crop: trained maturity model suggests the field is likely mature."
+    elif prediction.predicted_label == "healthy":
+        summary = "Farm Crop: trained vegetation damage model predicts healthy vegetation."
+    else:
+        summary = "Farm Crop: trained vegetation damage model predicts unhealthy or damaged vegetation."
+
+    explanation = (
+        f"Prediction: {label_display} at {confidence_pct}% confidence. "
+        f"Maturity model probability: {maturity_pct}%. "
+        "This result uses the trained vegetation health and maturity models."
+    )
+    return summary, explanation
+
+
+def _trained_damage_recommendations(
+    prediction: Any,
+    feature_values: dict[str, Any] | None = None,
+    maturity_prediction: Any | None = None,
+) -> list[str]:
+    features = feature_values or prediction.feature_values or {}
+    confidence_pct = round(float(prediction.confidence) * 100.0, 1)
+    label = str(prediction.predicted_label or "")
+    tgi = float(features.get("tgi", 0.0))
+    std_g = float(features.get("std_g", 0.0))
+    uniformity = float(features.get("stand_uniformity_score", 0.0))
+    maturity_positive = bool(
+        maturity_prediction is not None
+        and str(maturity_prediction.predicted_label or "") == "healthy_mature"
+    )
+    maturity_pct = round(float(getattr(maturity_prediction, "maturity_probability", 0.0)) * 100.0, 1)
+
+    recs: list[str] = []
+    if maturity_positive:
+        recs.append(
+            f"The maturity model likely classifies this area as mature ({maturity_pct}% probability), but confirm crop stage in the field before harvest decisions."
+        )
+        recs.append("Check kernels, husk dryness, and stalk condition on-site to confirm maturity rather than active damage.")
+        if uniformity < 0.45:
+            recs.append("Maturity appears uneven across the canopy, so inspect whether the field is drying down at different rates.")
+        recs.append("Use the health model only as secondary context here because mature corn can naturally look less green.")
+    elif label == "unhealthy_damaged":
+        recs.append(
+            f"The model likely detected unhealthy or damaged vegetation ({confidence_pct}% confidence), but this is not a certainty. Confirm with a field check before taking major action."
+        )
+        if tgi < 0:
+            recs.append("Lower TGI likely points to reduced greenness or chlorophyll response. Check for nutrient stress, leaf damage, or water limitations.")
+        if uniformity < 0.45:
+            recs.append("Low stand uniformity likely means patchy crop condition. Walk the weaker-looking blocks and compare them with nearby healthy sections.")
+        if std_g < 0.12:
+            recs.append("The green-channel spread is narrow, which may suggest consistently weak canopy color across the selected area.")
+        recs.append("If the canopy still looks questionable on-site, re-scan under similar daylight after corrective action to compare changes.")
+    else:
+        recs.append(
+            f"The model likely sees this area as healthy ({confidence_pct}% confidence), but treat this as a screening result rather than certainty."
+        )
+        if uniformity < 0.55:
+            recs.append("Even with a healthy prediction, the stand uniformity is only moderate. It is worth checking for early patchiness before it spreads.")
+        else:
+            recs.append("Visual consistency looks stable. Maintain the current program and continue routine scouting.")
+        recs.append("Repeat the scan under similar lighting so future predictions stay comparable.")
+
+    return recs[:6]
+
+
+def _ml_segment_recommendation(segment: dict[str, Any]) -> str:
+    if segment.get("empty"):
+        empty_area_pct = round(float(segment.get("empty_area_pct", 100.0)), 1)
+        return f"EMPTY segment: about {empty_area_pct}% of this cell has no usable crop area, so no vegetation recommendation can be made."
+
+    label = str(segment.get("health_band", "")).lower()
+    confidence = round(float(segment.get("confidence", 0.0)) * 100.0, 1)
+    tgi = float(segment.get("ml_tgi", segment.get("tgi", 0.0)))
+    uniformity = float(segment.get("ml_stand_uniformity_score", segment.get("stand_uniformity_score", 0.0)))
+
+    if label == "mature":
+        return (
+            f"This segment is likely mature ({round(float(segment.get('maturity_probability', 0.0)) * 100.0, 1)}% probability). "
+            "Confirm crop stage in the field before treating the appearance as damage."
+        )
+    if label == "unhealthy_damaged":
+        parts = [
+            f"This segment is likely unhealthy or damaged ({confidence}% confidence), but that is not a certainty."
+        ]
+        if tgi < 0:
+            parts.append("The lower greenness signal likely deserves an on-site check for stress, discoloration, or damage.")
+        if uniformity < 0.45:
+            parts.append("Patchiness is also likely present here, so compare this segment with the neighboring cells.")
+        parts.append("Use the field check to confirm before applying targeted treatment.")
+        return " ".join(parts)
+
+    return (
+        f"This segment is likely healthy ({confidence}% confidence), though the prediction is still only a model estimate. "
+        "Keep monitoring and verify any suspicious areas in person."
+    )
+
+
+def _ml_segment_possible_issue(segment: dict[str, Any]) -> str:
+    if segment.get("empty"):
+        return "This segment is mostly empty or outside the selected crop region, so the model did not score it."
+
+    label = str(segment.get("health_band", "")).lower()
+    tgi = float(segment.get("ml_tgi", segment.get("tgi", 0.0)))
+    uniformity = float(segment.get("ml_stand_uniformity_score", segment.get("stand_uniformity_score", 0.0)))
+
+    if label == "mature":
+        return "The maturity model suggests this segment is likely in a mature stage rather than primarily damaged."
+    if label == "unhealthy_damaged":
+        if uniformity < 0.45:
+            return "Likely uneven crop condition or patchy stress, though this should still be confirmed in the field."
+        if tgi < 0:
+            return "Likely reduced greenness or chlorophyll-related stress, but not with certainty from the image alone."
+        return "The model likely sees damage or unhealthy vegetation in this cell, but it should be validated on-site."
+
+    if uniformity < 0.55:
+        return "No major damage prediction, but the canopy may be slightly uneven in this segment."
+    return "No strong issue is likely from the model output, although routine field validation is still recommended."
 
 
 def _stress_band_cutoffs(camera_model: str) -> tuple[float, float, float]:
@@ -933,41 +1185,11 @@ def _management_zone_recommendation(indices: dict[str, float], stress_ratio: flo
 
 
 def _segment_recommendation(segment: dict[str, Any]) -> str:
-    if segment.get("empty"):
-        return "No valid crop pixels detected in this segment."
-
-    band = str(segment.get("health_band", "watch")).lower()
-    canopy = float(segment.get("canopy_cover_pct", 0.0))
-    tgi = float(segment.get("tgi", 0.0))
-    stress = float(segment.get("estimated_stress_zone_pct", 0.0))
-
-    if band in {"critical", "stressed"} or stress >= 42:
-        return "High-risk segment: prioritize field visit, nitrogen correction, and irrigation check."
-    if band == "mature":
-        return "Segment looks mature or close to harvest. Confirm crop stage and prioritize harvest-readiness checks."
-    if canopy < 40 or tgi < -0.03:
-        return "Low canopy/chlorophyll signal: monitor for thin stands and apply corrective feeding as needed."
-    return "Segment is stable. Maintain current management and continue periodic scans."
+    return _ml_segment_recommendation(segment)
 
 
 def _segment_possible_issue(segment: dict[str, Any]) -> str:
-    if segment.get("empty"):
-        return "No reliable crop signal in this cell (possibly non-crop area or outside selected region)."
-
-    band = str(segment.get("health_band", "watch")).lower()
-    stress = float(segment.get("estimated_stress_zone_pct", 0.0))
-    canopy = float(segment.get("canopy_cover_pct", 0.0))
-    tgi = float(segment.get("tgi", 0.0))
-
-    if band in {"critical", "stressed"} or stress >= 42:
-        return "Possible water stress or uneven irrigation, with potential nutrient deficiency in this section."
-    if band == "mature":
-        return "Canopy appears dry and mature in this section, which may reflect harvest stage rather than active stress."
-    if canopy < 40:
-        return "Possible sparse stand or early growth delay compared to surrounding segments."
-    if tgi < -0.03:
-        return "Possible chlorophyll/nitrogen limitation indicated by weak greenness response."
-    return "No major issue detected; segment appears relatively stable."
+    return _ml_segment_possible_issue(segment)
 
 
 def _build_masked_heatzone_image(rgb_image: Any, mask_image: Any | None = None) -> Any:
@@ -1247,8 +1469,36 @@ def analyze_freeform_cropped_segments(
     )
     context = FieldContext(crop_name="Farm Crop", growth_stage="unknown", rainfall_last_7d_mm=0.0, avg_temp_c=0.0)
     report = interpret_field_from_rgb(snapshot, context)
+    trained_prediction = predict_vegetation_damage_from_rgb(
+        np.asarray(analysis_rgb, dtype=np.uint8),
+        mask=np.asarray(analysis_mask.convert("L"), dtype=np.uint8),
+    )
+    maturity_prediction = predict_maturity_from_rgb(
+        np.asarray(analysis_rgb, dtype=np.uint8),
+        mask=np.asarray(analysis_mask.convert("L"), dtype=np.uint8),
+    )
+    summary, explanation = _trained_damage_summary(trained_prediction, maturity_prediction)
+    report_payload = asdict(report)
+    report_payload["one_line_summary"] = summary
+    report_payload["simple_explanation"] = explanation
     extended_indices = _compute_extended_rgb_indices(
         metrics["mean_r"], metrics["mean_g"], metrics["mean_b"], metrics["green_coverage"]
+    )
+    weighted_health_score = _weighted_health_score(
+        vigor_score=round((metrics["avg_vigor"] + 1) * 50, 2),
+        biomass_score=round(extended_indices["relative_biomass_score"], 2),
+        canopy_score=round(extended_indices["canopy_cover_pct"], 2),
+        uniformity_score=round(extended_indices["stand_uniformity_score"], 2),
+    )
+    report_payload["model_result"] = _trained_damage_model_result(
+        trained_prediction,
+        health_score=weighted_health_score,
+        maturity_prediction=maturity_prediction,
+    )
+    report_payload["recommendations"] = _trained_damage_recommendations(
+        trained_prediction,
+        report_payload["model_result"].get("feature_values"),
+        maturity_prediction=maturity_prediction,
     )
     zone = _management_zone_recommendation(extended_indices, stress_ratio=metrics["stress_ratio"])
 
@@ -1275,7 +1525,45 @@ def analyze_freeform_cropped_segments(
             region_rgb = analysis_rgb.crop((x0, y0, x1, y1))
             region_mask = analysis_mask.crop((x0, y0, x1, y1))
             try:
+                region_mask_np = np.asarray(region_mask.convert("L"), dtype=np.uint8) > 0
+                occupied_col_ratio = float(np.mean(region_mask_np.any(axis=0))) if region_mask_np.size else 0.0
+                occupied_row_ratio = float(np.mean(region_mask_np.any(axis=1))) if region_mask_np.size else 0.0
                 region_metrics = _masked_rgb_metrics(region_rgb, region_mask)
+                usable_area_ratio = max(
+                    0.0,
+                    min(
+                        1.0,
+                        float(region_metrics["mask_coverage"]) * float(region_metrics["valid_pixel_ratio"]),
+                    ),
+                )
+                empty_area_ratio = max(0.0, 1.0 - usable_area_ratio)
+                touches_outer_edge = (
+                    row == 0
+                    or col == 0
+                    or row == (adaptive_rows - 1)
+                    or col == (adaptive_cols - 1)
+                )
+                if (
+                    empty_area_ratio > CROP_SEGMENT_MAX_EMPTY_AREA_RATIO
+                    or float(region_metrics["mask_coverage"]) < CROP_SEGMENT_MIN_FILLED_AREA_RATIO
+                    or usable_area_ratio < CROP_SEGMENT_MIN_FILLED_AREA_RATIO
+                    or (
+                        touches_outer_edge
+                        and (
+                            float(region_metrics["mask_coverage"]) < CROP_SEGMENT_EDGE_MIN_FILLED_AREA_RATIO
+                            or usable_area_ratio < CROP_SEGMENT_EDGE_MIN_FILLED_AREA_RATIO
+                            or (
+                                col in {0, adaptive_cols - 1}
+                                and occupied_col_ratio < CROP_SEGMENT_EDGE_MIN_OCCUPIED_SPAN_RATIO
+                            )
+                            or (
+                                row in {0, adaptive_rows - 1}
+                                and occupied_row_ratio < CROP_SEGMENT_EDGE_MIN_OCCUPIED_SPAN_RATIO
+                            )
+                        )
+                    )
+                ):
+                    raise RuntimeError("Segment is mostly empty.")
                 if region_metrics["mask_coverage"] < CROP_SEGMENT_MIN_MASK_COVERAGE:
                     raise RuntimeError("Segment outside selected crop area.")
                 if region_metrics["valid_pixel_ratio"] < CROP_SEGMENT_MIN_VALID_PIXEL_RATIO:
@@ -1289,6 +1577,14 @@ def analyze_freeform_cropped_segments(
                     camera_model="DJI Mini 4 Pro",
                 )
                 region_report = interpret_field_from_rgb(region_snapshot, context)
+                region_prediction = predict_vegetation_damage_from_rgb(
+                    np.asarray(region_rgb.convert("RGB"), dtype=np.uint8),
+                    mask=np.asarray(region_mask.convert("L"), dtype=np.uint8),
+                )
+                region_maturity_prediction = predict_maturity_from_rgb(
+                    np.asarray(region_rgb.convert("RGB"), dtype=np.uint8),
+                    mask=np.asarray(region_mask.convert("L"), dtype=np.uint8),
+                )
                 region_indices = _compute_extended_rgb_indices(
                     region_metrics["mean_r"],
                     region_metrics["mean_g"],
@@ -1296,7 +1592,17 @@ def analyze_freeform_cropped_segments(
                     region_metrics["green_coverage"],
                 )
                 region_zone = _management_zone_recommendation(region_indices, stress_ratio=region_metrics["stress_ratio"])
-                health = asdict(region_report)["model_result"]
+                region_health_score = _weighted_health_score(
+                    vigor_score=round((region_metrics["avg_vigor"] + 1) * 50, 2),
+                    biomass_score=round(region_indices["relative_biomass_score"], 2),
+                    canopy_score=round(region_indices["canopy_cover_pct"], 2),
+                    uniformity_score=round(region_indices["stand_uniformity_score"], 2),
+                )
+                health = _trained_damage_model_result(
+                    region_prediction,
+                    health_score=region_health_score,
+                    maturity_prediction=region_maturity_prediction,
+                )
                 segment_payload = {
                     "segment_id": str(segment_index),
                     "row": row + 1,
@@ -1304,6 +1610,14 @@ def analyze_freeform_cropped_segments(
                     "health_band": health.get("health_band"),
                     "health_score": round(float(health.get("health_score", 0.0)), 2),
                     "confidence": round(float(health.get("confidence", 0.0)), 3),
+                    "prediction_probability": round(float(health.get("probability", 0.0)), 4),
+                    "healthy_probability": round(float(health.get("healthy_probability", 0.0)), 4),
+                    "unhealthy_damaged_probability": round(float(health.get("unhealthy_damaged_probability", 0.0)), 4),
+                    "maturity_probability": round(float(health.get("maturity_probability", 0.0)), 4),
+                    "maturity_label": health.get("maturity_label", "not_mature"),
+                    "ml_tgi": round(float(health.get("feature_values", {}).get("tgi", 0.0)), 6),
+                    "ml_std_g": round(float(health.get("feature_values", {}).get("std_g", 0.0)), 6),
+                    "ml_stand_uniformity_score": round(float(health.get("feature_values", {}).get("stand_uniformity_score", 0.0)), 6),
                     "green_coverage_pct": round(region_metrics["green_coverage"] * 100, 2),
                     "estimated_stress_zone_pct": round(region_metrics["stress_ratio"] * 100, 2),
                     "vegetation_vigor_score": round((region_metrics["avg_vigor"] + 1) * 50, 2),
@@ -1319,6 +1633,10 @@ def analyze_freeform_cropped_segments(
                     "mgrvi": round(region_indices["mgrvi"], 4),
                     "lai_proxy": round(region_indices["lai_proxy"], 3),
                     "mask_coverage_pct": round(region_metrics["mask_coverage"] * 100, 2),
+                    "usable_area_pct": round(usable_area_ratio * 100, 2),
+                    "empty_area_pct": round(empty_area_ratio * 100, 2),
+                    "occupied_col_span_pct": round(occupied_col_ratio * 100, 2),
+                    "occupied_row_span_pct": round(occupied_row_ratio * 100, 2),
                     "valid_pixel_ratio_pct": round(region_metrics["valid_pixel_ratio"] * 100, 2),
                     "management_zone": region_zone["zone"],
                     "management_action": region_zone["action"],
@@ -1332,9 +1650,17 @@ def analyze_freeform_cropped_segments(
                         "segment_id": str(segment_index),
                         "row": row + 1,
                         "col": col + 1,
-                        "health_band": "na",
+                        "health_band": "empty",
                         "health_score": 0.0,
                         "confidence": 0.0,
+                        "prediction_probability": 0.0,
+                        "healthy_probability": 0.0,
+                        "unhealthy_damaged_probability": 0.0,
+                        "maturity_probability": 0.0,
+                        "maturity_label": "not_mature",
+                        "ml_tgi": 0.0,
+                        "ml_std_g": 0.0,
+                        "ml_stand_uniformity_score": 0.0,
                         "green_coverage_pct": 0.0,
                         "estimated_stress_zone_pct": 0.0,
                         "vegetation_vigor_score": 0.0,
@@ -1350,11 +1676,15 @@ def analyze_freeform_cropped_segments(
                         "mgrvi": 0.0,
                         "lai_proxy": 0.0,
                         "mask_coverage_pct": 0.0,
+                        "usable_area_pct": 0.0,
+                        "empty_area_pct": 100.0,
+                        "occupied_col_span_pct": 0.0,
+                        "occupied_row_span_pct": 0.0,
                         "valid_pixel_ratio_pct": 0.0,
-                        "management_zone": "Zone N/A",
-                        "management_action": "No valid crop pixels in this segment.",
-                        "recommendation": "No valid crop pixels detected in this segment.",
-                        "possible_issue": "No reliable crop signal in this cell (possibly non-crop area or outside selected region).",
+                        "management_zone": "EMPTY",
+                        "management_action": "This cell is mostly empty, outside the crop region, or has too little usable crop area.",
+                        "recommendation": "EMPTY segment: more than 60% of this cell has no usable crop area, so it was not scored.",
+                        "possible_issue": "No reliable crop signal in this cell because most of the segment is empty or outside the selected crop region.",
                         "empty": True,
                     }
                 )
@@ -1398,7 +1728,8 @@ def analyze_freeform_cropped_segments(
             "stand_uniformity_score": round(extended_indices["stand_uniformity_score"], 2),
             "relative_yield_potential_pct": round(extended_indices["relative_yield_potential_pct"], 2),
         },
-        "report": asdict(report),
+        "vegetation_damage_model": report_payload["model_result"],
+        "report": report_payload,
     }
 
     return {
@@ -1611,9 +1942,13 @@ def build_result_report_pdf(user_id: str, result: dict[str, Any], analysis: dict
     field_name = personalization.get("field_name") or "-"
     crop_type = personalization.get("crop_type") or "-"
     health_band = str(result.get("health_band", "WATCH")).upper()
+    model_result = report.get("model_result", {}) if isinstance(report, dict) else {}
+    predicted_label = _prediction_label_display(model_result.get("health_band", health_band))
+    confidence_pct = round(float(model_result.get("confidence", result.get("confidence", 0.0))) * 100.0, 2)
 
     status_map = {
         "HEALTHY": ("Good condition", "Plants look generally healthy.", "Keep normal care and continue regular monitoring."),
+        "UNHEALTHY_DAMAGED": ("Damage detected", "The trained model detected unhealthy or damaged vegetation.", "Inspect the affected field area and verify stress or damage on-site."),
         "MATURE": ("Mature stage", "The field appears close to harvest or late-season dry-down.", "Confirm crop stage and plan harvest or final field checks."),
         "WATCH": ("Needs watching", "Some parts may be under early stress.", "Inspect weaker spots and adjust water/fertilizer early."),
         "STRESSED": ("At risk", "Visible stress is present in parts of the field.", "Check affected areas today and apply corrective action."),
@@ -1655,8 +1990,8 @@ def build_result_report_pdf(user_id: str, result: dict[str, Any], analysis: dict
     kpi_w = (width - 64 - 64 - kpi_gap * 2) // 3
     kpis = [
         ("Field Status", status_title),
-        ("Health Score (0-100)", str(result.get("health_score", "-"))),
-        ("Result Reliability", str(result.get("confidence", "-"))),
+        ("Predicted Label", predicted_label),
+        ("Prediction Confidence", f"{confidence_pct}%"),
     ]
     for idx, (label, value) in enumerate(kpis):
         x1 = 64 + idx * (kpi_w + kpi_gap)
@@ -1776,7 +2111,10 @@ def build_result_report_pdf(user_id: str, result: dict[str, Any], analysis: dict
     metric_lines = [
         ("Healthy green area", f"{farmer_features.get('green_coverage_pct', '-')}%"),
         ("Area under stress", f"{farmer_features.get('estimated_stress_zone_pct', '-')}%"),
-        ("Plant strength score", f"{farmer_features.get('vegetation_vigor_score', '-')}/100"),
+        ("Model features", ", ".join(
+            f"{name}={model_result.get('feature_values', {}).get(name, '-')}"
+            for name in (model_result.get("feature_names") or [])
+        ) or "-"),
         ("Current status", status_title),
         ("Recommended focus", "Visit weaker-looking sections first"),
         ("Next scan", "Repeat scan after field action"),
@@ -1829,17 +2167,27 @@ def build_result_report_pdf(user_id: str, result: dict[str, Any], analysis: dict
 
 
 @app.route("/")
-def index():
+def landing_page():
+    if require_auth():
+        return redirect(url_for("dashboard_page"))
+    site_url = request.url_root.rstrip("/")
+    return render_template("landing.html", site_url=site_url, canonical_url=f"{site_url}/")
+
+
+@app.route("/dashboard")
+def dashboard_page():
     if not require_auth():
         return redirect(url_for("login_page"))
 
     user = current_user()
+    site_url = request.url_root.rstrip("/")
     return render_template(
         "index.html",
         username=to_upper_text(user.get("username", ""), "USER"),
         privilege=to_upper_text(user.get("privilege", ""), "USER"),
         upload_logs=session.get("upload_logs", []),
         entries=load_user_results_index(user.get("user_id", "")),
+        canonical_url=f"{site_url}/dashboard",
     )
 
 
@@ -1849,10 +2197,12 @@ def tutorial_page():
         return redirect(url_for("login_page"))
 
     user = current_user()
+    site_url = request.url_root.rstrip("/")
     return render_template(
         "tutorial.html",
         username=to_upper_text(user.get("username", ""), "USER"),
         privilege=to_upper_text(user.get("privilege", ""), "USER"),
+        canonical_url=f"{site_url}/tutorial",
     )
 
 
@@ -1860,7 +2210,7 @@ def tutorial_page():
 def results_page():
     if not require_auth():
         return redirect(url_for("login_page"))
-    return redirect(url_for("index", window="results"))
+    return redirect(url_for("dashboard_page", window="results"))
 
 
 @app.route("/results/<image_id>")
@@ -1874,7 +2224,43 @@ def result_view(image_id: str):
         return redirect(url_for("results_page"))
     analysis = load_result_analysis(entry)
     personalization = read_result_personalization(analysis)
-    return render_template("result-view.html", result=entry, analysis=analysis, personalization=personalization)
+    site_url = request.url_root.rstrip("/")
+    return render_template(
+        "result-view.html",
+        result=entry,
+        analysis=analysis,
+        personalization=personalization,
+        canonical_url=f"{site_url}/results/{image_id}",
+    )
+
+
+@app.get("/robots.txt")
+def robots_txt():
+    site_url = request.url_root.rstrip("/")
+    payload = "\n".join(
+        [
+            "User-agent: *",
+            "Allow: /",
+            "Disallow: /dashboard",
+            "Disallow: /results",
+            "Disallow: /tutorial",
+            "Disallow: /api/",
+            f"Sitemap: {site_url}/sitemap.xml",
+        ]
+    )
+    return Response(payload, mimetype="text/plain")
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml():
+    site_url = request.url_root.rstrip("/")
+    payload = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        f"<url><loc>{site_url}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>"
+        "</urlset>"
+    )
+    return Response(payload, mimetype="application/xml")
 
 
 @app.get("/results/<image_id>/report.pdf")
@@ -2090,25 +2476,28 @@ def delete_result(image_id: str):
 @app.route("/login", methods=["GET"])
 def login_page():
     if require_auth():
-        return redirect(url_for("index"))
+        return redirect(url_for("dashboard_page"))
     success = request.args.get("success", "")
-    return render_template("login.html", success=success, error="")
+    site_url = request.url_root.rstrip("/")
+    return render_template("login.html", success=success, error="", canonical_url=f"{site_url}/login")
 
 
 @app.route("/login", methods=["POST"])
 def login():
+    site_url = request.url_root.rstrip("/")
     if supabase is None:
         return render_template(
             "login.html",
             error="Missing Supabase key. Set SUPABASE_KEY (or SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY) in .env.",
             success="",
+            canonical_url=f"{site_url}/login",
         )
 
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "").strip()
 
     if not username or not password:
-        return render_template("login.html", error="Username and password are required.", success="")
+        return render_template("login.html", error="Username and password are required.", success="", canonical_url=f"{site_url}/login")
 
     query = (
         supabase.table(SUPABASE_TABLE)
@@ -2120,11 +2509,11 @@ def login():
 
     users = query.data or []
     if not users:
-        return render_template("login.html", error="Invalid username or password.", success="")
+        return render_template("login.html", error="Invalid username or password.", success="", canonical_url=f"{site_url}/login")
 
     db_user = users[0]
     if not verify_password(db_user.get("password", ""), password):
-        return render_template("login.html", error="Invalid username or password.", success="")
+        return render_template("login.html", error="Invalid username or password.", success="", canonical_url=f"{site_url}/login")
 
     session["user"] = {
         "user_id": db_user.get("user_id"),
@@ -2132,29 +2521,32 @@ def login():
         "privilege": db_user.get("privilege", "USER"),
     }
 
-    return redirect(url_for("index"))
+    return redirect(url_for("dashboard_page"))
 
 
 @app.route("/register", methods=["GET"])
 def register_page():
     if require_auth():
-        return redirect(url_for("index"))
-    return render_template("register.html", error="")
+        return redirect(url_for("dashboard_page"))
+    site_url = request.url_root.rstrip("/")
+    return render_template("register.html", error="", canonical_url=f"{site_url}/register")
 
 
 @app.route("/register", methods=["POST"])
 def register():
+    site_url = request.url_root.rstrip("/")
     if supabase is None:
         return render_template(
             "register.html",
             error="Missing Supabase key. Set SUPABASE_KEY (or SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY) in .env.",
+            canonical_url=f"{site_url}/register",
         )
 
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "").strip()
 
     if not username or not password:
-        return render_template("register.html", error="Username and password are required.")
+        return render_template("register.html", error="Username and password are required.", canonical_url=f"{site_url}/register")
 
     existing = (
         supabase.table(SUPABASE_TABLE)
@@ -2165,7 +2557,7 @@ def register():
     )
 
     if existing.data:
-        return render_template("register.html", error="Username already exists.")
+        return render_template("register.html", error="Username already exists.", canonical_url=f"{site_url}/register")
 
     payload = {
         "user_id": str(uuid.uuid4()),
@@ -2184,7 +2576,7 @@ def handle_upload_too_large(_exc):
         user = current_user() or {}
         user_id = user.get("user_id", "unknown-user")
         add_upload_log(user_id, "Upload failed: file too large (max 12 MB).", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("dashboard_page"))
     return redirect(url_for("login_page"))
 
 
@@ -2202,11 +2594,11 @@ def upload_image():
 
     if not uploaded_file or not uploaded_file.filename:
         add_upload_log(user_id, "Upload failed: no file selected", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("dashboard_page"))
 
     if not is_allowed_image(uploaded_file.filename):
         add_upload_log(user_id, f"Upload failed: unsupported file type ({uploaded_file.filename})", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("dashboard_page"))
 
     try:
         safe_name = secure_filename(uploaded_file.filename)
@@ -2269,7 +2661,7 @@ def upload_image():
     except Exception as exc:
         add_upload_log(user_id, f"Upload failed: {exc}", "error")
 
-    return redirect(url_for("index"))
+    return redirect(url_for("dashboard_page"))
 
 
 @app.post("/account/logout")

@@ -13,6 +13,7 @@ const customTitleInput = document.getElementById("custom-title-input");
 const fieldNameInput = document.getElementById("field-name-input");
 const cropTypeInput = document.getElementById("crop-type-input");
 const captureAltitudeInput = document.getElementById("capture-altitude-input");
+const quickTagDisplay = document.getElementById("quick-tag-display");
 
 const cropSourceImage = document.getElementById("crop-source-image");
 const cropOverlayCanvas = document.getElementById("crop-overlay-canvas");
@@ -22,8 +23,21 @@ const resetCropShapeButton = document.getElementById("reset-crop-shape");
 const clearCropResultsButton = document.getElementById("clear-crop-results");
 const runCroppedAnalysisButton = document.getElementById("run-cropped-analysis");
 const showCropToolButton = document.getElementById("show-crop-tool");
+const toggleFocusModeButton = document.getElementById("toggle-focus-mode");
 const cropAnalysisStatus = document.getElementById("crop-analysis-status");
 const mobileCropPresets = document.getElementById("mobile-crop-presets");
+const segmentVisualFrame = document.getElementById("segment-visual-frame");
+const segmentViewOriginalButton = document.getElementById("segment-view-original");
+const segmentViewHeatzoneButton = document.getElementById("segment-view-heatzone");
+const segmentFocusModal = document.getElementById("segment-focus-modal");
+const segmentFocusBackdrop = document.getElementById("segment-focus-backdrop");
+const closeFocusModeButton = document.getElementById("close-focus-mode");
+const focusSegmentTitle = document.getElementById("focus-segment-title");
+const focusSegmentViewLabel = document.getElementById("focus-segment-view-label");
+const focusSegmentPreview = document.getElementById("focus-segment-preview");
+const focusSegmentPreviewEmpty = document.getElementById("focus-segment-preview-empty");
+const focusParameterList = document.getElementById("focus-parameter-list");
+const focusRecommendationList = document.getElementById("focus-recommendation-list");
 
 const croppedOriginalPreview = document.getElementById("cropped-original-preview");
 const croppedHeatzonePreview = document.getElementById("cropped-heatzone-preview");
@@ -55,6 +69,13 @@ const advCanopyCover = document.getElementById("adv-canopy-cover");
 const advBiomass = document.getElementById("adv-biomass");
 const advUniformity = document.getElementById("adv-uniformity");
 const advYieldPotential = document.getElementById("adv-yield-potential");
+const advPredictionProbability = document.getElementById("adv-prediction-probability");
+const advHealthyProbability = document.getElementById("adv-healthy-probability");
+const advUnhealthyProbability = document.getElementById("adv-unhealthy-probability");
+const advMaturityLabel = document.getElementById("adv-maturity-label");
+const advMaturityProbability = document.getElementById("adv-maturity-probability");
+const advThreshold = document.getElementById("adv-threshold");
+const advModelFindings = document.getElementById("adv-model-findings");
 const recSegId = document.getElementById("rec-seg-id");
 const recSegIssue = document.getElementById("rec-seg-issue");
 const recSegReco = document.getElementById("rec-seg-reco");
@@ -79,9 +100,14 @@ let segmentRows = 4;
 let segmentCols = 4;
 let activeSegmentId = "";
 let latestSegments = [];
+let latestGrid = { rows: 4, cols: 4, row_weights: [1, 1, 1, 1], col_weights: [1, 1, 1, 1] };
 
 let handlePoints = [];
 let activeHandleIndex = -1;
+let currentSegmentVisualMode = "heatzone";
+let focusModeEnabled = false;
+let focusModalOpen = false;
+let focusModalCloseTimer = null;
 
 function isCoarsePointer() {
     return window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 780;
@@ -176,43 +202,77 @@ function getAdaptiveSegmentRecommendation(segment) {
     if (!segment || segment.empty) {
         return segment?.recommendation || "-";
     }
+    return segment.recommendation || "The model likely sees this segment as stable, but it is still best to verify suspicious areas in person.";
+}
 
-    const checks = [
-        {
-            label: "health score",
-            below: Number(segment.health_score) < SEGMENT_THRESHOLDS.health_score,
-            message: "Health is low in this segment. Prioritize a field check and confirm whether crop stress is spreading.",
-        },
-        {
-            label: "vigor",
-            below: Number(segment.vegetation_vigor_score) < SEGMENT_THRESHOLDS.vegetation_vigor_score,
-            message: "Vigor is low in this segment. Review nutrient delivery and irrigation timing to help plant growth recover.",
-        },
-        {
-            label: "canopy",
-            below: Number(segment.canopy_cover_pct) < SEGMENT_THRESHOLDS.canopy_cover_pct,
-            message: "Canopy is low in this segment. Inspect for sparse stand, delayed growth, or missing plants in this section.",
-        },
-        {
-            label: "biomass",
-            below: Number(segment.relative_biomass_score) < SEGMENT_THRESHOLDS.relative_biomass_score,
-            message: "Biomass is low in this segment. Check whether plants are undersized and adjust feeding or water support as needed.",
-        },
-        {
-            label: "uniformity",
-            below: Number(segment.stand_uniformity_score) < SEGMENT_THRESHOLDS.stand_uniformity_score,
-            message: "Uniformity is low in this segment. Compare weak and strong patches for irrigation inconsistency, pests, or uneven emergence.",
-        },
-    ];
+function getSegmentDamageClass(segment) {
+    if (!segment || segment.empty) return "empty";
+    const damageProbability = Number(segment.unhealthy_damaged_probability ?? segment.prediction_probability ?? 0);
+    if (damageProbability >= 0.8) return "critical";
+    if (damageProbability >= 0.5) return "likely";
+    return "healthy";
+}
 
-    const flagged = checks.filter((item) => item.below);
-    if (!flagged.length) {
-        return segment.recommendation || "All tracked segment metrics are above threshold. Maintain the current program and monitor on the next scan.";
+function formatPercentFromProbability(value) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return "-";
     }
-    if (flagged.length === 1) {
-        return flagged[0].message;
+    return `${(Number(value) * 100).toFixed(1)}%`;
+}
+
+function getActiveSegment() {
+    return latestSegments.find((segment) => segment.segment_id === activeSegmentId) || null;
+}
+
+function getSegmentBoundsPercent(segment, grid) {
+    const colWeights = Array.isArray(grid?.col_weights) && grid.col_weights.length
+        ? grid.col_weights.map((value) => Math.max(1, Number(value) || 1))
+        : Array.from({ length: Number(grid?.cols || segmentCols) || 1 }, () => 1);
+    const rowWeights = Array.isArray(grid?.row_weights) && grid.row_weights.length
+        ? grid.row_weights.map((value) => Math.max(1, Number(value) || 1))
+        : Array.from({ length: Number(grid?.rows || segmentRows) || 1 }, () => 1);
+
+    const colIndex = Math.max(0, Number(segment.col || 1) - 1);
+    const rowIndex = Math.max(0, Number(segment.row || 1) - 1);
+    const totalCols = colWeights.reduce((sum, value) => sum + value, 0);
+    const totalRows = rowWeights.reduce((sum, value) => sum + value, 0);
+    const left = (colWeights.slice(0, colIndex).reduce((sum, value) => sum + value, 0) / totalCols) * 100;
+    const top = (rowWeights.slice(0, rowIndex).reduce((sum, value) => sum + value, 0) / totalRows) * 100;
+    const width = ((colWeights[colIndex] || 1) / totalCols) * 100;
+    const height = ((rowWeights[rowIndex] || 1) / totalRows) * 100;
+    return { left, top, width, height };
+}
+
+function renderFocusSegmentPreview(segment) {
+    if (!focusSegmentPreview || !focusSegmentPreviewEmpty) return;
+    if (focusSegmentViewLabel) {
+        focusSegmentViewLabel.textContent = `Current mode: ${currentSegmentVisualMode === "original" ? "Original" : "AI Image"}`;
     }
-    return `${flagged[0].message} Also monitor ${flagged.slice(1).map((item) => item.label).join(", ")} because they are also below threshold in this segment.`;
+
+    if (!segment) {
+        focusSegmentPreview.style.backgroundImage = "none";
+        focusSegmentPreview.style.backgroundSize = "";
+        focusSegmentPreview.style.backgroundPosition = "";
+        focusSegmentPreviewEmpty.hidden = false;
+        return;
+    }
+
+    const source = currentSegmentVisualMode === "original"
+        ? (croppedOriginalPreview?.src || "")
+        : (croppedHeatzonePreview?.src || "");
+    if (!source) {
+        focusSegmentPreview.style.backgroundImage = "none";
+        focusSegmentPreviewEmpty.hidden = false;
+        return;
+    }
+
+    const bounds = getSegmentBoundsPercent(segment, latestGrid);
+    const safeWidth = Math.max(bounds.width, 0.5);
+    const safeHeight = Math.max(bounds.height, 0.5);
+    focusSegmentPreview.style.backgroundImage = `url("${source}")`;
+    focusSegmentPreview.style.backgroundSize = `${100 / (safeWidth / 100)}% ${100 / (safeHeight / 100)}%`;
+    focusSegmentPreview.style.backgroundPosition = `${(bounds.left / Math.max(100 - safeWidth, 0.0001)) * 100}% ${(bounds.top / Math.max(100 - safeHeight, 0.0001)) * 100}%`;
+    focusSegmentPreviewEmpty.hidden = true;
 }
 
 function setCropStatus(message, state = "idle") {
@@ -236,28 +296,36 @@ function setCropViewMode(mode) {
 
 function setSegmentMetricValues(segment) {
     if (!segment || segment.empty) {
+        if (quickTagDisplay) quickTagDisplay.textContent = segment?.empty ? "EMPTY" : "Select a segment";
         if (recSegId) recSegId.textContent = segment?.segment_id || "-";
         if (recSegReco) recSegReco.textContent = getAdaptiveSegmentRecommendation(segment);
         if (segDetailId) segDetailId.textContent = segment?.segment_id || "-";
-        if (segDetailScore) segDetailScore.textContent = "-";
+        if (segDetailScore) segDetailScore.textContent = segment?.empty ? "EMPTY" : "-";
         if (segDetailVigor) segDetailVigor.textContent = "-";
         if (segDetailCanopy) segDetailCanopy.textContent = "-";
         if (segDetailBiomass) segDetailBiomass.textContent = "-";
         if (segDetailUniformity) segDetailUniformity.textContent = "-";
         if (segDetailGreen) segDetailGreen.textContent = "-";
         if (segDetailStress) segDetailStress.textContent = "-";
+        renderFocusModeDetails(null);
         return;
+    }
+    if (quickTagDisplay) {
+        quickTagDisplay.textContent = String(segment.health_band || "unknown").replaceAll("_", " ").toUpperCase();
     }
     if (recSegId) recSegId.textContent = segment.segment_id || "-";
     if (recSegReco) recSegReco.textContent = getAdaptiveSegmentRecommendation(segment);
     if (segDetailId) segDetailId.textContent = segment.segment_id || "-";
-    if (segDetailScore) segDetailScore.textContent = formatScore(segment.health_score);
+    if (segDetailScore) {
+        segDetailScore.textContent = segment.health_band === "mature" ? "MATURE" : formatScore(segment.health_score);
+    }
     if (segDetailVigor) segDetailVigor.textContent = formatScore(segment.vegetation_vigor_score);
     if (segDetailCanopy) segDetailCanopy.textContent = formatScore(segment.canopy_cover_pct, "%");
     if (segDetailBiomass) segDetailBiomass.textContent = formatScore(segment.relative_biomass_score);
     if (segDetailUniformity) segDetailUniformity.textContent = formatScore(segment.stand_uniformity_score);
     if (segDetailGreen) segDetailGreen.textContent = formatScore(segment.green_coverage_pct, "%");
     if (segDetailStress) segDetailStress.textContent = formatScore(segment.estimated_stress_zone_pct, "%");
+    renderFocusModeDetails(segment);
 }
 
 function setAdvancedPanelFromSegment(segment) {
@@ -283,6 +351,114 @@ function setAdvancedPanelFromSegment(segment) {
     if (advBiomass) advBiomass.textContent = `Biomass: ${segment.relative_biomass_score ?? "-"}`;
     if (advUniformity) advUniformity.textContent = `Uniformity: ${segment.stand_uniformity_score ?? "-"}`;
     if (advYieldPotential) advYieldPotential.textContent = `${segment.relative_yield_potential_pct ?? "-"}%`;
+    if (advPredictionProbability) advPredictionProbability.textContent = `${Number(segment.prediction_probability ?? 0) * 100}%`;
+    if (advHealthyProbability) advHealthyProbability.textContent = `${Number(segment.healthy_probability ?? 0) * 100}%`;
+    if (advUnhealthyProbability) advUnhealthyProbability.textContent = `${Number(segment.unhealthy_damaged_probability ?? 0) * 100}%`;
+    if (advMaturityLabel) advMaturityLabel.textContent = String(segment.maturity_label || "not_mature").replaceAll("_", " ").toUpperCase();
+    if (advMaturityProbability) advMaturityProbability.textContent = `${Number(segment.maturity_probability ?? 0) * 100}%`;
+    if (advThreshold) advThreshold.textContent = "0.5";
+    if (advModelFindings) {
+        const label = String(segment.health_band || "").replaceAll("_", " ").toUpperCase();
+        advModelFindings.textContent = `Selected segment prediction is likely ${label || "UNKNOWN"} with TGI ${segment.ml_tgi ?? "-"}, std_g ${segment.ml_std_g ?? "-"}, and stand uniformity ${segment.ml_stand_uniformity_score ?? "-"}.`;
+    }
+}
+
+function setSegmentVisualMode(mode) {
+    currentSegmentVisualMode = mode === "original" ? "original" : "heatzone";
+    if (segmentVisualFrame) {
+        segmentVisualFrame.classList.toggle("is-original", currentSegmentVisualMode === "original");
+        segmentVisualFrame.classList.toggle("is-heatzone", currentSegmentVisualMode !== "original");
+    }
+    segmentViewOriginalButton?.classList.toggle("viewer-btn-active", currentSegmentVisualMode === "original");
+    segmentViewHeatzoneButton?.classList.toggle("viewer-btn-active", currentSegmentVisualMode !== "original");
+    if (focusModalOpen) {
+        renderFocusSegmentPreview(getActiveSegment());
+    }
+}
+
+function setFocusMode(enabled) {
+    focusModeEnabled = Boolean(enabled);
+    toggleFocusModeButton?.classList.toggle("viewer-btn-active", focusModeEnabled);
+    toggleFocusModeButton?.setAttribute("aria-pressed", String(focusModeEnabled));
+    toggleFocusModeButton.textContent = focusModeEnabled ? "Advanced Mode On" : "Advanced Mode";
+    closeFocusModal();
+}
+
+function openFocusModal() {
+    if (!segmentFocusModal) return;
+    if (focusModalCloseTimer) {
+        clearTimeout(focusModalCloseTimer);
+        focusModalCloseTimer = null;
+    }
+    focusModalOpen = true;
+    segmentFocusModal.classList.remove("is-closing");
+    segmentFocusModal.hidden = false;
+    segmentFocusModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("focus-modal-open");
+}
+
+function closeFocusModal() {
+    if (!segmentFocusModal) return;
+    focusModalOpen = false;
+    segmentFocusModal.classList.add("is-closing");
+    segmentFocusModal.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("focus-modal-open");
+    if (focusModalCloseTimer) {
+        clearTimeout(focusModalCloseTimer);
+    }
+    focusModalCloseTimer = setTimeout(() => {
+        if (!segmentFocusModal) return;
+        segmentFocusModal.hidden = true;
+        segmentFocusModal.classList.remove("is-closing");
+        focusModalCloseTimer = null;
+    }, 190);
+}
+
+function renderFocusModeDetails(segment) {
+    if (!focusSegmentTitle || !focusParameterList || !focusRecommendationList) return;
+
+    if (!segment || segment.empty) {
+        focusSegmentTitle.textContent = "Select a segment to inspect it closely.";
+        renderFocusSegmentPreview(null);
+        focusParameterList.innerHTML = "<p>No segment selected.</p>";
+        focusRecommendationList.innerHTML = "<li>Select a segment to load guidance.</li>";
+        return;
+    }
+
+    const severityLabel = getSegmentDamageClass(segment).replace("-", " ").toUpperCase();
+    focusSegmentTitle.textContent = `Segment ${segment.segment_id} - ${severityLabel}`;
+    renderFocusSegmentPreview(segment);
+    const parameters = [
+        ["Health score", segment.health_band === "mature" ? "MATURE" : formatScore(segment.health_score)],
+        ["Prediction confidence", formatPercentFromProbability(segment.confidence)],
+        ["Healthy probability", formatPercentFromProbability(segment.healthy_probability)],
+        ["Unhealthy/damaged probability", formatPercentFromProbability(segment.unhealthy_damaged_probability)],
+        ["Maturity probability", formatPercentFromProbability(segment.maturity_probability)],
+        ["Green coverage", formatScore(segment.green_coverage_pct, "%")],
+        ["Stress zone", formatScore(segment.estimated_stress_zone_pct, "%")],
+        ["Vigor", formatScore(segment.vegetation_vigor_score)],
+        ["Canopy cover", formatScore(segment.canopy_cover_pct, "%")],
+        ["Biomass", formatScore(segment.relative_biomass_score)],
+        ["Uniformity", formatScore(segment.stand_uniformity_score)],
+        ["TGI", formatScore(segment.ml_tgi ?? segment.tgi)],
+        ["Std G", formatScore(segment.ml_std_g)],
+        ["ML uniformity", formatScore(segment.ml_stand_uniformity_score)],
+        ["Management zone", segment.management_zone || "-"],
+        ["Management action", segment.management_action || "-"],
+    ];
+    focusParameterList.innerHTML = parameters
+        .map(([label, value]) => `<div class="focus-parameter-row"><span>${label}</span><strong>${value}</strong></div>`)
+        .join("");
+
+    const recommendations = [
+        segment.recommendation,
+        segment.possible_issue,
+        `Model finding: likely ${String(segment.health_band || "").replaceAll("_", " ")} with confidence ${formatPercentFromProbability(segment.confidence)}.`,
+        segment.unhealthy_damaged_probability >= 0.5
+            ? "Action note: verify the flagged area on-site before applying targeted treatment."
+            : "Action note: maintain monitoring and compare this segment with surrounding cells on the next scan.",
+    ].filter(Boolean);
+    focusRecommendationList.innerHTML = recommendations.map((item) => `<li>${item}</li>`).join("");
 }
 
 function resetDefaultCropShape() {
@@ -427,6 +603,7 @@ function renderSegmentButtons(segments, grid) {
 
     segmentRows = Number(grid?.rows || 4);
     segmentCols = Number(grid?.cols || 4);
+    latestGrid = grid || latestGrid;
 
     if (segmentVisualGrid) {
         const colWeights = Array.isArray(grid?.col_weights) && grid.col_weights.length === segmentCols
@@ -453,6 +630,10 @@ function renderSegmentButtons(segments, grid) {
         });
 
         setSegmentMetricValues(segment);
+        setAdvancedPanelFromSegment(segment);
+        if (focusModeEnabled) {
+            openFocusModal();
+        }
     };
 
     const buildSummaryRow = (segment, mode = "summary") => {
@@ -461,20 +642,25 @@ function renderSegmentButtons(segments, grid) {
         row.dataset.segmentId = segment.segment_id;
         if (segment.empty) {
             row.classList.add("segment-summary-row-empty");
-        } else {
-            row.tabIndex = 0;
-            row.addEventListener("click", () => selectSegment(segment.segment_id));
-            row.addEventListener("keydown", (event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    selectSegment(segment.segment_id);
-                }
-            });
         }
+        row.tabIndex = 0;
+        row.addEventListener("click", () => selectSegment(segment.segment_id));
+        row.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                selectSegment(segment.segment_id);
+            }
+        });
 
         const values = [
-            segment.empty ? `${segment.segment_id} (N/A)` : segment.segment_id,
-            mode === "summary" ? classifySegmentMetric(segment, "health_score") : formatScore(segment.health_score),
+            segment.empty ? `${segment.segment_id} (EMPTY)` : segment.segment_id,
+            segment.empty
+                ? "EMPTY"
+                : (
+                    segment.health_band === "mature"
+                        ? "MATURE"
+                        : (mode === "summary" ? classifySegmentMetric(segment, "health_score") : formatScore(segment.health_score))
+                ),
             mode === "summary" ? classifySegmentMetric(segment, "vegetation_vigor_score") : formatScore(segment.vegetation_vigor_score),
             mode === "summary" ? classifySegmentMetric(segment, "canopy_cover_pct") : formatScore(segment.canopy_cover_pct, "%"),
             mode === "summary" ? classifySegmentMetric(segment, "relative_biomass_score") : formatScore(segment.relative_biomass_score),
@@ -498,15 +684,15 @@ function renderSegmentButtons(segments, grid) {
         if (segmentVisualGrid) {
             const cell = document.createElement("button");
             cell.type = "button";
-            cell.className = `segment-visual-cell band-${segment.health_band || "na"}`;
+            cell.className = `segment-visual-cell damage-${getSegmentDamageClass(segment)}`;
             cell.dataset.segmentId = segment.segment_id;
             cell.style.gridColumn = String(Number(segment.col || 1));
             cell.style.gridRow = String(Number(segment.row || 1));
-            cell.textContent = segment.empty ? "" : segment.segment_id;
+            cell.textContent = segment.segment_id;
             if (segment.empty) {
                 cell.classList.add("segment-visual-cell-empty");
-                cell.title = `${segment.segment_id}: outside selected crop area`;
-                cell.disabled = true;
+                cell.title = `${segment.segment_id}: empty`;
+                cell.addEventListener("click", () => selectSegment(segment.segment_id));
             } else {
                 cell.title = segment.segment_id;
                 cell.addEventListener("click", () => selectSegment(segment.segment_id));
@@ -728,8 +914,21 @@ toggleAdvancedResultsButton?.addEventListener("click", () => {
     if (!featuresPanel) return;
     const visible = featuresPanel.classList.toggle("advanced-results-visible");
     toggleAdvancedResultsButton.setAttribute("aria-expanded", String(visible));
-    toggleAdvancedResultsButton.textContent = visible ? "Hide Advance Results" : "Advance Results";
+    toggleAdvancedResultsButton.textContent = visible ? "Hide Advanced Results" : "Show Advanced Results";
 });
+
+segmentViewOriginalButton?.addEventListener("click", () => setSegmentVisualMode("original"));
+segmentViewHeatzoneButton?.addEventListener("click", () => setSegmentVisualMode("heatzone"));
+toggleFocusModeButton?.addEventListener("click", () => setFocusMode(!focusModeEnabled));
+closeFocusModeButton?.addEventListener("click", () => closeFocusModal());
+segmentFocusBackdrop?.addEventListener("click", () => closeFocusModal());
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && focusModalOpen) {
+        closeFocusModal();
+    }
+});
+setSegmentVisualMode("heatzone");
+setFocusMode(false);
 
 if (pdfDownloadLink) {
     const pdfUrl = new URL(pdfDownloadLink.href, window.location.origin);
