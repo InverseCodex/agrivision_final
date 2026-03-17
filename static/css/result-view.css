@@ -1551,12 +1551,35 @@ body[data-theme="minimalist"] .pdf-btn {
     animation: minimalistPulse 4.8s ease-in-out infinite;
 }
 
+body[data-theme="minimalist"] .result-topbar {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 251, 0.96) 100%);
+    border-bottom-color: #d8e1e7;
+    box-shadow: 0 8px 18px rgba(24, 33, 38, 0.08);
+}
+
 body[data-theme="minimalist"] .viewer-panel,
 body[data-theme="minimalist"] .description-panel,
-body[data-theme="minimalist"] .features-panel {
+body[data-theme="minimalist"] .features-panel,
+body[data-theme="minimalist"] .recommendations-panel,
+body[data-theme="minimalist"] .personalization-panel,
+body[data-theme="minimalist"] .crop-analysis-panel {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 251, 0.96));
     border-color: #d8e1e7;
     box-shadow: 0 10px 22px rgba(24, 33, 38, 0.08);
+}
+
+body[data-theme="minimalist"] .placeholder-card,
+body[data-theme="minimalist"] .segment-results,
+body[data-theme="minimalist"] .segment-metric,
+body[data-theme="minimalist"] .embedded-personalization input,
+body[data-theme="minimalist"] .embedded-personalization select,
+body[data-theme="minimalist"] .mobile-crop-presets,
+body[data-theme="minimalist"] .rec-action-btn,
+body[data-theme="minimalist"] #farmer-notes,
+body[data-theme="minimalist"] .indices-row span,
+body[data-theme="minimalist"] .indices-row a {
+    background: #f8fafb;
+    border-color: #d7e0e6;
 }
 
 body[data-theme="minimalist"] .segment-results-summary,
@@ -1604,6 +1627,26 @@ body[data-theme="minimalist"] .segment-summary-row:focus td,
 body[data-theme="minimalist"] .segment-summary-row.active td {
     background: #dfeef8;
     color: #182126;
+}
+
+body[data-theme="minimalist"] .crop-analysis-status.error {
+    color: #8a3347;
+}
+
+body[data-theme="minimalist"] .crop-analysis-status.success {
+    color: #17553b;
+}
+
+body[data-theme="minimalist"] .rec-status-chip {
+    color: #6c460d;
+    background: rgba(196, 143, 32, 0.14);
+    border-color: rgba(196, 143, 32, 0.26);
+}
+
+body[data-theme="minimalist"] .rec-item.done .rec-status-chip {
+    color: #17553b;
+    background: rgba(46, 139, 87, 0.14);
+    border-color: rgba(46, 139, 87, 0.26);
 }
 
 @media (max-width: 1150px) {

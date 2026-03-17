@@ -736,6 +736,7 @@ body {
 .secondary-upload-btn {
     background: transparent;
     border: 1px solid #2C3F36;
+    color: var(--text);
 }
 
 .secondary-upload-btn:hover {
@@ -858,6 +859,10 @@ body {
     background: linear-gradient(90deg, #2fd688, #82ffd5);
 }
 
+.result-card[data-health-band="unhealthy_damaged"]::after {
+    background: linear-gradient(90deg, #ff4f6c, #ff2d55);
+}
+
 .result-card[data-health-band="mature"]::after {
     background: linear-gradient(90deg, #c7a35a, #e4c98f);
 }
@@ -949,6 +954,7 @@ body {
 .result-open-link.secondary {
     background: transparent;
     border: 1px solid #2C3F36;
+    color: var(--text);
 }
 
 .result-delete-btn {
@@ -1130,6 +1136,134 @@ body[data-theme="neon"] .button-active {
 body[data-theme="minimalist"] .result-open-link,
 body[data-theme="minimalist"] .upload-btn {
     animation: themePulseMinimalist 4.8s ease-in-out infinite;
+}
+
+body[data-theme="minimalist"] .secondary-upload-btn,
+body[data-theme="minimalist"] .result-open-link.secondary {
+    background: rgba(24, 33, 38, 0.03);
+    border-color: rgba(24, 33, 38, 0.14);
+    color: var(--text);
+}
+
+body[data-theme="minimalist"] .upload-status[data-state="error"] {
+    color: #8a3347;
+}
+
+body[data-theme="minimalist"] .upload-status[data-state="success"] {
+    color: #17553b;
+}
+
+body[data-theme="minimalist"] .upload-status[data-state="info"] {
+    color: #1d5d82;
+}
+
+body[data-theme="minimalist"] .tutorial-banner,
+body[data-theme="minimalist"] .tutorial-progress-panel,
+body[data-theme="minimalist"] .tutorial-story-card,
+body[data-theme="minimalist"] .tutorial-preview-frame,
+body[data-theme="minimalist"] .tutorial-side-notes {
+    border-color: #d7e0e6;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 251, 0.96));
+    box-shadow: 0 10px 22px rgba(24, 33, 38, 0.08), 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+}
+
+body[data-theme="minimalist"] .tutorial-banner {
+    background:
+        radial-gradient(circle at top right, rgba(42, 111, 151, 0.14), transparent 34%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 251, 0.96));
+}
+
+body[data-theme="minimalist"] .tutorial-stage-chip {
+    border-color: #d7e0e6;
+    background: rgba(24, 33, 38, 0.03);
+}
+
+body[data-theme="minimalist"] .tutorial-stage-chip:hover {
+    background: rgba(42, 111, 151, 0.08);
+    border-color: rgba(42, 111, 151, 0.22);
+    color: var(--text);
+}
+
+body[data-theme="minimalist"] .tutorial-stage-chip.is-active {
+    background: linear-gradient(90deg, var(--accent), var(--accent-dark));
+    border-color: transparent;
+    color: #f7fbff;
+}
+
+body[data-theme="minimalist"] .tutorial-stage-progress-bar {
+    background: rgba(24, 33, 38, 0.08);
+}
+
+body[data-theme="minimalist"] .tutorial-window-badge {
+    background: rgba(42, 111, 151, 0.12);
+    color: var(--text);
+}
+
+body[data-theme="minimalist"] .tutorial-focus-chip {
+    background: rgba(24, 33, 38, 0.035);
+    border-color: #d7e0e6;
+}
+
+body[data-theme="minimalist"] .tutorial-preview-frame {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(237, 243, 247, 0.92)),
+        radial-gradient(circle at top left, rgba(42, 111, 151, 0.1), transparent 28%);
+}
+
+body[data-theme="minimalist"] .tutorial-mock {
+    background: rgba(24, 33, 38, 0.04);
+    border-color: #d7e0e6;
+}
+
+body[data-theme="minimalist"] .tutorial-mini-sidebar {
+    background: rgba(24, 33, 38, 0.05);
+}
+
+body[data-theme="minimalist"] .tutorial-mini-nav,
+body[data-theme="minimalist"] .tutorial-mini-btn,
+body[data-theme="minimalist"] .tutorial-priority,
+body[data-theme="minimalist"] .tutorial-mini-main,
+body[data-theme="minimalist"] .tutorial-pane,
+body[data-theme="minimalist"] .tutorial-mini-dropzone,
+body[data-theme="minimalist"] .tutorial-mini-preview-card,
+body[data-theme="minimalist"] .tutorial-upload-file-card,
+body[data-theme="minimalist"] .tutorial-sample-photo,
+body[data-theme="minimalist"] .tutorial-result-card,
+body[data-theme="minimalist"] .tutorial-canvas-frame,
+body[data-theme="minimalist"] .tutorial-mini-heatzone,
+body[data-theme="minimalist"] .tutorial-notes-box,
+body[data-theme="minimalist"] .tutorial-metric-card,
+body[data-theme="minimalist"] .tutorial-kpi-card,
+body[data-theme="minimalist"] .tutorial-mini-filters span,
+body[data-theme="minimalist"] .tutorial-mini-table div,
+body[data-theme="minimalist"] .help-feature-card {
+    border-color: #d7e0e6;
+    background: rgba(24, 33, 38, 0.035);
+}
+
+body[data-theme="minimalist"] .tutorial-mini-nav.is-active,
+body[data-theme="minimalist"] .tutorial-mini-btn.is-primary {
+    color: #f7fbff;
+}
+
+body[data-theme="minimalist"] .tutorial-highlight-tag {
+    background: rgba(42, 111, 151, 0.12);
+    color: #182126;
+}
+
+body[data-theme="minimalist"] .tutorial-sample-photo-overlay {
+    background: rgba(24, 33, 38, 0.72);
+    color: #f7fbff;
+}
+
+body[data-theme="minimalist"] .tutorial-mini-status.success {
+    color: #17553b;
+    background: rgba(46, 139, 87, 0.14);
+}
+
+body[data-theme="minimalist"] .tutorial-priority.medium {
+    background: rgba(196, 143, 32, 0.18);
+    color: #6c460d;
 }
 
 .tutorial-shell {

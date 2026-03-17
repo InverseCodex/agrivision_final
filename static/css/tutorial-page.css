@@ -236,6 +236,20 @@ body.reduce-motion * {
     border-color: transparent;
 }
 
+.tutorial-window-pill,
+.tutorial-guide-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.45rem 0.7rem;
+    border-radius: 999px;
+    background: rgba(31, 168, 122, 0.16);
+    color: var(--text);
+    font-size: 0.78rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
 .tutorial-scene-grid {
     display: grid;
     gap: 1rem;
@@ -588,6 +602,113 @@ body.reduce-motion * {
     50% {
         box-shadow: 0 0 0 3px rgba(31, 168, 122, 0.22), 0 18px 30px rgba(0, 0, 0, 0.3);
     }
+}
+
+body[data-theme="minimalist"] .tutorial-sidebar {
+    border-right-color: rgba(24, 33, 38, 0.08);
+    box-shadow: 16px 0 30px rgba(24, 33, 38, 0.08);
+}
+
+body[data-theme="minimalist"] .tutorial-user-card,
+body[data-theme="minimalist"] .tutorial-progress-card,
+body[data-theme="minimalist"] .tutorial-topbar,
+body[data-theme="minimalist"] .tutorial-guide-card,
+body[data-theme="minimalist"] .tutorial-panel {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 251, 0.96));
+    box-shadow: 0 10px 22px rgba(24, 33, 38, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+body[data-theme="minimalist"] .tutorial-progress-bar {
+    background: rgba(24, 33, 38, 0.08);
+}
+
+body[data-theme="minimalist"] .tutorial-btn.secondary,
+body[data-theme="minimalist"] .tutorial-btn.exit,
+body[data-theme="minimalist"] .mini-btn.secondary,
+body[data-theme="minimalist"] .tutorial-real-nav {
+    background: rgba(24, 33, 38, 0.03);
+    border-color: rgba(24, 33, 38, 0.12);
+    color: var(--text);
+}
+
+body[data-theme="minimalist"] .tutorial-btn,
+body[data-theme="minimalist"] .mini-btn.primary,
+body[data-theme="minimalist"] .tutorial-real-nav.is-active,
+body[data-theme="minimalist"] .tutorial-stage-chip.is-active {
+    color: #f7fbff;
+}
+
+body[data-theme="minimalist"] .tutorial-stage-chip {
+    background: rgba(24, 33, 38, 0.03);
+    border-color: rgba(24, 33, 38, 0.12);
+}
+
+body[data-theme="minimalist"] .tutorial-window-pill,
+body[data-theme="minimalist"] .tutorial-guide-badge {
+    background: rgba(42, 111, 151, 0.12);
+    color: var(--text);
+}
+
+body[data-theme="minimalist"] .tutorial-window.is-highlighted,
+body[data-theme="minimalist"] .tutorial-card.is-highlighted {
+    border-color: rgba(42, 111, 151, 0.58);
+    box-shadow: 0 0 0 2px rgba(42, 111, 151, 0.12), 0 12px 24px rgba(24, 33, 38, 0.12);
+}
+
+body[data-theme="minimalist"] .tutorial-real-shell,
+body[data-theme="minimalist"] .tutorial-result-page {
+    background: rgba(24, 33, 38, 0.04);
+}
+
+body[data-theme="minimalist"] .tutorial-real-sidebar {
+    border-right-color: rgba(24, 33, 38, 0.08);
+}
+
+body[data-theme="minimalist"] .tutorial-real-user {
+    border-color: rgba(24, 33, 38, 0.08);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 251, 0.92));
+}
+
+body[data-theme="minimalist"] .tutorial-real-api,
+body[data-theme="minimalist"] .tutorial-real-upload-box,
+body[data-theme="minimalist"] .tutorial-card,
+body[data-theme="minimalist"] .tutorial-result-card,
+body[data-theme="minimalist"] .tutorial-filter-row span,
+body[data-theme="minimalist"] .tutorial-field-grid span,
+body[data-theme="minimalist"] .tutorial-kpi-card,
+body[data-theme="minimalist"] .tutorial-feature-grid div,
+body[data-theme="minimalist"] .tutorial-advanced-table div,
+body[data-theme="minimalist"] .tutorial-notes-box,
+body[data-theme="minimalist"] .tutorial-rec-item,
+body[data-theme="minimalist"] .tutorial-tip {
+    background: rgba(24, 33, 38, 0.03);
+    border-color: rgba(24, 33, 38, 0.1);
+}
+
+body[data-theme="minimalist"] .tutorial-dropzone-art {
+    background: rgba(24, 33, 38, 0.03);
+}
+
+body[data-theme="minimalist"] .tutorial-api-key {
+    background: rgba(42, 111, 151, 0.12);
+    color: #15384c;
+}
+
+body[data-theme="minimalist"] .tutorial-result-topbar {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 251, 0.96));
+}
+
+body[data-theme="minimalist"] .tutorial-crop-art::after {
+    box-shadow: 0 0 0 999px rgba(24, 33, 38, 0.22);
+}
+
+body[data-theme="minimalist"] .priority.high {
+    color: #f7fbff;
+}
+
+body[data-theme="minimalist"] .priority.medium {
+    color: #6c460d;
+    background: rgba(196, 143, 32, 0.18);
 }
 
 @media (max-width: 1180px) {
