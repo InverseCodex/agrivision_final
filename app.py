@@ -1835,6 +1835,49 @@ def _draw_paragraph(draw, text: str, x: int, y: int, width_px: int, color, font,
     return y + line_gap
 
 
+def _ellipsize_line(draw, text: str, max_width: int, font) -> str:
+    base = (text or "").strip()
+    if not base:
+        return "-"
+    if _text_width(draw, base, font) <= max_width:
+        return base
+
+    ellipsis = "..."
+    trimmed = base
+    while trimmed and _text_width(draw, f"{trimmed}{ellipsis}", font) > max_width:
+        trimmed = trimmed[:-1].rstrip()
+    return f"{trimmed}{ellipsis}" if trimmed else ellipsis
+
+
+def _draw_paragraph_in_box(
+    draw,
+    text: str,
+    box: tuple[int, int, int, int],
+    color,
+    font,
+    line_gap: int = 6,
+    max_lines: int | None = None,
+) -> int:
+    x1, y1, x2, y2 = box
+    width_px = max(1, x2 - x1)
+    lines = _wrap_text_by_pixels(draw, text, width_px, font)
+    line_height = _text_height(draw, "Ag", font) + 5
+    max_fit_lines = max(1, (max(1, y2 - y1) + line_gap) // (line_height + line_gap))
+    allowed_lines = max_fit_lines if max_lines is None else min(max_fit_lines, max_lines)
+
+    if len(lines) > allowed_lines:
+        lines = lines[:allowed_lines]
+        lines[-1] = _ellipsize_line(draw, lines[-1], width_px, font)
+
+    y = y1
+    for line in lines:
+        if y + line_height > y2:
+            break
+        draw.text((x1, y), line, fill=color, font=font)
+        y += line_height
+    return y
+
+
 def _draw_card(draw, box: tuple[int, int, int, int], fill: str, outline: str, radius: int = 18, width: int = 2):
     draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
 
@@ -2119,18 +2162,28 @@ def build_result_report_pdf(user_id: str, result: dict[str, Any], analysis: dict
         ("Recommended focus", "Visit weaker-looking sections first"),
         ("Next scan", "Repeat scan after field action"),
     ]
+    metric_card_h = 84
+    metric_gap = 12
     for label, value in metric_lines:
         _draw_card(
             draw,
-            (metrics_x, metrics_y, right_body[2] - 18, metrics_y + 56),
+            (metrics_x, metrics_y, right_body[2] - 18, metrics_y + metric_card_h),
             c_card,
             c_border,
             radius=12,
             width=1,
         )
         draw.text((metrics_x + 14, metrics_y + 10), label, fill=c_text_secondary, font=font_small)
-        draw.text((metrics_x + 14, metrics_y + 30), value, fill=c_text_primary, font=font_small)
-        metrics_y += 66
+        _draw_paragraph_in_box(
+            draw,
+            value,
+            (metrics_x + 14, metrics_y + 34, right_body[2] - 32, metrics_y + metric_card_h - 10),
+            c_text_primary,
+            font_small,
+            line_gap=4,
+            max_lines=3,
+        )
+        metrics_y += metric_card_h + metric_gap
 
     recommendations = report.get("recommendations", []) if isinstance(report, dict) else []
     rec_box = (64, 1534, 1176, 1688)
@@ -2146,7 +2199,15 @@ def build_result_report_pdf(user_id: str, result: dict[str, Any], analysis: dict
             cx = col_x[idx // 3]
             cy = row_y[idx % 3]
             text = f"{idx + 1}. {marker} {rec}"
-            draw.text((cx, cy), text[:95], fill=c_text_secondary, font=font_small)
+            _draw_paragraph_in_box(
+                draw,
+                text,
+                (cx, cy, cx + 500, cy + 34),
+                c_text_secondary,
+                font_small,
+                line_gap=2,
+                max_lines=2,
+            )
     else:
         draw.text((84, 1602), "No recommendations available for this result.", fill=c_text_secondary, font=font_small)
 
