@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AgriVision | AI Crop Monitoring and RGB Vegetation Analysis</title>
+    <meta name="description" content="AgriVision is a web platform for RGB crop monitoring, AI-assisted field analysis, heatzone visualization, segment-level recommendations, and downloadable crop health reports.">
+    <meta name="robots" content="index,follow,max-image-preview:large">
+    <link rel="canonical" href="{{ canonical_url }}">
+    <meta property="og:title" content="AgriVision | AI Crop Monitoring and RGB Vegetation Analysis">
+    <meta property="og:description" content="Upload crop images, review vegetation analysis, identify stress zones, and generate practical field reports with AgriVision.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{ canonical_url }}">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}">
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "AgriVision",
+        "applicationCategory": "AgriculturalTechnology",
+        "operatingSystem": "Web",
+        "url": "{{ canonical_url }}",
+        "description": "AgriVision is a crop monitoring website that uses RGB image analysis to highlight field stress, summarize vegetation condition, and support decision-making.",
+        "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+        }
+    }
+    </script>
+</head>
+<body>
+    <header class="site-header">
+        <a class="brand" href="/">AgriVision</a>
+        <nav class="top-nav" aria-label="Primary navigation">
+            <a href="#features">Features</a>
+            <a href="#workflow">Workflow</a>
+            <a href="#faq">FAQ</a>
+            <a href="{{ url_for('login_page') }}">Login</a>
+            <a class="nav-cta" href="{{ url_for('register_page') }}">Get Started</a>
+        </nav>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="hero-copy">
+                <p class="kicker">Crop Monitoring Website</p>
+                <h1>AI-assisted RGB vegetation analysis for faster field decisions</h1>
+                <p class="hero-text">AgriVision helps users upload crop images, visualize stress through heatzones, inspect segment-level field conditions, and turn analysis into practical recommendations and reports.</p>
+                <div class="hero-actions">
+                    <a class="primary-btn" href="{{ url_for('register_page') }}">Create Account</a>
+                    <a class="secondary-btn" href="{{ url_for('login_page') }}">Open Dashboard</a>
+                </div>
+                <ul class="hero-points">
+                    <li>RGB crop image analysis</li>
+                    <li>Heatzone and stress visualization</li>
+                    <li>Segment-based field recommendations</li>
+                    <li>Downloadable crop health reports</li>
+                </ul>
+            </div>
+            <aside class="hero-card">
+                <p class="card-label">What AgriVision delivers</p>
+                <div class="metric-grid">
+                    <article>
+                        <strong>Upload</strong>
+                        <span>Field images from drone or farm capture</span>
+                    </article>
+                    <article>
+                        <strong>Analyze</strong>
+                        <span>RGB vegetation proxies and stress indicators</span>
+                    </article>
+                    <article>
+                        <strong>Review</strong>
+                        <span>Recommendations, notes, and result history</span>
+                    </article>
+                    <article>
+                        <strong>Export</strong>
+                        <span>PDF reports for documentation and thesis demos</span>
+                    </article>
+                </div>
+            </aside>
+        </section>
+
+        <section class="info-section" id="features">
+            <div class="section-heading">
+                <p class="kicker">Core Features</p>
+                <h2>Built for crop monitoring, result interpretation, and field reporting</h2>
+            </div>
+            <div class="feature-grid">
+                <article class="feature-card">
+                    <h3>Image Upload and Analysis</h3>
+                    <p>Users can upload crop images and receive RGB-based vegetation analysis designed to support field inspection and monitoring.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Heatzone Visualization</h3>
+                    <p>The system generates heatzone outputs that help users locate weak, stressed, or uneven portions of the field more quickly.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Segment-Level Review</h3>
+                    <p>Detailed result pages allow crop-area selection, segment comparison, and recommendations tied to specific sections of the image.</p>
+                </article>
+                <article class="feature-card">
+                    <h3>Report Generation</h3>
+                    <p>AgriVision exports printable PDF summaries for presentation, record-keeping, and thesis demonstration use.</p>
+                </article>
+            </div>
+        </section>
+
+        <section class="info-section workflow-section" id="workflow">
+            <div class="section-heading">
+                <p class="kicker">Workflow</p>
+                <h2>Simple upload-to-report process</h2>
+            </div>
+            <ol class="workflow-list">
+                <li>Register or sign in to AgriVision.</li>
+                <li>Upload a crop image for analysis.</li>
+                <li>Review the heatzone, summary metrics, and recommendations.</li>
+                <li>Open the detailed result page for crop-area and segment inspection.</li>
+                <li>Save notes and export a PDF report.</li>
+            </ol>
+        </section>
+
+        <section class="info-section faq-section" id="faq">
+            <div class="section-heading">
+                <p class="kicker">FAQ</p>
+                <h2>Frequently asked questions</h2>
+            </div>
+            <div class="faq-list">
+                <article>
+                    <h3>What is AgriVision?</h3>
+                    <p>AgriVision is a web-based crop monitoring platform that interprets RGB field images to support practical field review and crop health assessment.</p>
+                </article>
+                <article>
+                    <h3>What kind of images can be used?</h3>
+                    <p>The platform is designed for standard RGB crop images, including drone captures and field imagery prepared for vegetation review.</p>
+                </article>
+                <article>
+                    <h3>Does AgriVision provide downloadable reports?</h3>
+                    <p>Yes. The website can generate PDF reports that summarize results, metrics, and recommendations.</p>
+                </article>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <p>AgriVision is intended as a crop monitoring and decision-support platform using RGB image analysis.</p>
+    </footer>
+</body>
+</html>
