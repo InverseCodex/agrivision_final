@@ -9,9 +9,25 @@ import cv2
 import numpy as np
 
 EPSILON = 1e-6
-MODEL_PATH = Path(__file__).with_name("vegetation_model.npz")
-MATURITY_MODEL_PATH = Path(__file__).with_name("maturity_model.npz")
 DEFAULT_MAX_DIMENSION = 1024
+
+VEGETATION_DAMAGE_MODEL_DATA: dict[str, Any] = {
+    "feature_names": ["tgi", "std_g", "stand_uniformity_score"],
+    "mean": [11.493968089808142, 0.20776145396004106, 0.5479587696340675],
+    "std": [2.994313774600539, 0.031041996343169818, 0.20075792893869424],
+    "weights": [-3.572818249739656, -3.155527625428556, -1.52346795298902, 0.36292581024015347],
+    "threshold": 0.5,
+    "positive_class": "unhealthy_damaged",
+}
+
+VEGETATION_MATURITY_MODEL_DATA: dict[str, Any] = {
+    "feature_names": ["tgi", "stand_uniformity_score"],
+    "mean": [11.493968089808142, 0.5479587696340675],
+    "std": [2.994313774600539, 0.20075792893869424],
+    "weights": [-3.0982337062798933, 4.724495119287652, -3.8518273607142386],
+    "threshold": 0.7599999999999999,
+    "positive_class": "healthy_mature",
+}
 
 
 @dataclass(frozen=True)
@@ -64,26 +80,29 @@ def _compute_patch_uniformity(mask: np.ndarray, patch_rows: int = 8, patch_cols:
     return float(np.clip(1.0 - coefficient_of_variation, 0.0, 1.0))
 
 
-def _read_model(path: Path) -> dict[str, Any]:
-    model = np.load(path, allow_pickle=True)
+def _normalize_model(model_data: dict[str, Any]) -> dict[str, Any]:
     return {
-        "feature_names": [str(item) for item in model["feature_names"].tolist()],
-        "mean": model["mean"].astype(np.float64),
-        "std": np.where(model["std"].astype(np.float64) < 1e-8, 1.0, model["std"].astype(np.float64)),
-        "weights": model["weights"].astype(np.float64),
-        "threshold": float(model["threshold"][0]),
-        "positive_class": str(model["positive_class"][0]),
+        "feature_names": [str(item) for item in model_data["feature_names"]],
+        "mean": np.asarray(model_data["mean"], dtype=np.float64),
+        "std": np.where(
+            np.asarray(model_data["std"], dtype=np.float64) < 1e-8,
+            1.0,
+            np.asarray(model_data["std"], dtype=np.float64),
+        ),
+        "weights": np.asarray(model_data["weights"], dtype=np.float64),
+        "threshold": float(model_data["threshold"]),
+        "positive_class": str(model_data["positive_class"]),
     }
 
 
 @lru_cache(maxsize=1)
 def _load_model() -> dict[str, Any]:
-    return _read_model(MODEL_PATH)
+    return _normalize_model(VEGETATION_DAMAGE_MODEL_DATA)
 
 
 @lru_cache(maxsize=1)
 def _load_maturity_model() -> dict[str, Any]:
-    return _read_model(MATURITY_MODEL_PATH)
+    return _normalize_model(VEGETATION_MATURITY_MODEL_DATA)
 
 
 def extract_vegetation_model_features(
