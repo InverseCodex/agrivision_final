@@ -1,6 +1,6 @@
 ---
 title: AgriVision Website
-emoji: "\U0001F33E"
+emoji: "🌾"
 colorFrom: blue
 colorTo: green
 sdk: docker
