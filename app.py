@@ -51,6 +51,10 @@ SUPABASE_RESULTS_TABLE = os.getenv("SUPABASE_RESULTS_TABLE", "analysis_results")
 SUPABASE_BUCKET_ORIGINAL = os.getenv("SUPABASE_BUCKET_ORIGINAL", "original-images")
 SUPABASE_BUCKET_HEATZONE = os.getenv("SUPABASE_BUCKET_HEATZONE", "ai-images")
 SUPABASE_BUCKET_REPORTS = os.getenv("SUPABASE_BUCKET_REPORTS", "reports")
+SECRET_ADMIN_USERNAME = "admin"
+SECRET_ADMIN_PASSWORD = "admin"
+SECRET_ADMIN_USER_ID = "__secret_admin__"
+SECRET_ADMIN_PRIVILEGE = "ADMIN"
 
 supabase: Client | None = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_KEY else None
 TEMP_ROOT = BASE_DIR / "tmp"
@@ -75,6 +79,29 @@ def require_auth():
     if not current_user():
         return False
     return True
+
+
+def secret_admin_session() -> dict[str, str]:
+    return {
+        "user_id": SECRET_ADMIN_USER_ID,
+        "username": SECRET_ADMIN_USERNAME,
+        "privilege": SECRET_ADMIN_PRIVILEGE,
+        "mode": "secret",
+    }
+
+
+def is_secret_user(user: dict[str, Any] | None = None) -> bool:
+    active_user = user or current_user() or {}
+    return (
+        str(active_user.get("user_id", "")) == SECRET_ADMIN_USER_ID
+        or str(active_user.get("mode", "")).lower() == "secret"
+    )
+
+
+def request_wants_json_response() -> bool:
+    requested_with = request.headers.get("X-Requested-With", "").strip().lower()
+    accept = request.headers.get("Accept", "").strip().lower()
+    return requested_with in {"xmlhttprequest", "fetch"} or "application/json" in accept
 
 
 def to_upper_text(value: str, fallback: str) -> str:
@@ -1771,6 +1798,157 @@ def load_result_analysis(entry: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
 
+def _format_metric_value(value: Any, suffix: str = "") -> str:
+    if value is None or value == "":
+        return "-"
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or "-"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    rounded = round(numeric, 2)
+    if rounded.is_integer():
+        return f"{int(rounded)}{suffix}"
+    return f"{rounded:.2f}".rstrip("0").rstrip(".") + suffix
+
+
+def _history_band_label(value: str) -> str:
+    mapping = {
+        "healthy": "Healthy",
+        "unhealthy_damaged": "Needs Attention",
+        "mature": "Likely Mature",
+    }
+    return mapping.get(str(value or "").lower(), _prediction_label_display(value))
+
+
+def build_history_entry_payload(entry: dict[str, Any]) -> dict[str, Any]:
+    image_id = str(entry.get("image_id", ""))
+    return {
+        "image_id": image_id,
+        "display_title": entry.get("display_title") or f"Result {image_id}",
+        "summary": entry.get("summary") or "Analysis available.",
+        "created_at": entry.get("created_at") or entry.get("updated_at") or "-",
+        "health_band": str(entry.get("health_band", "watch")).lower(),
+        "health_band_label": _history_band_label(str(entry.get("health_band", ""))),
+        "health_score": entry.get("health_score") or 0,
+        "heatzone_url": entry.get("heatzone_url") or "",
+    }
+
+
+def _phenological_stage_label(model_result: dict[str, Any]) -> str:
+    health_band = str(model_result.get("health_band", "")).lower()
+    maturity_label = str(model_result.get("maturity_label", "")).lower()
+    maturity_probability = float(model_result.get("maturity_probability", 0.0) or 0.0)
+    if health_band == "mature" or maturity_label in {"mature", "healthy_mature"} or maturity_probability >= 0.5:
+        return "Likely mature stage"
+    if maturity_probability > 0:
+        return "Not yet mature stage"
+    return "Stage not available"
+
+
+def _healthiness_label(model_result: dict[str, Any]) -> str:
+    return _history_band_label(str(model_result.get("health_band", "")))
+
+
+def _compact_farmer_recommendations(
+    analysis: dict[str, Any] | None,
+    model_result: dict[str, Any],
+    farmer_features: dict[str, Any],
+    vegetation_indices: dict[str, Any],
+) -> list[str]:
+    report = analysis.get("report", {}) if isinstance(analysis, dict) else {}
+    stored_recommendations = [
+        str(item).strip()
+        for item in (report.get("recommendations") or [])
+        if str(item).strip()
+    ]
+    if stored_recommendations:
+        return stored_recommendations[:3]
+
+    health_band = str(model_result.get("health_band", "")).lower()
+    uniformity = float(vegetation_indices.get("stand_uniformity_score", 0.0) or 0.0)
+
+    if health_band == "mature":
+        recommendations = [
+            "Confirm crop stage in the field before treating the image appearance as damage.",
+            "Check kernels, husk dryness, and stalk condition before harvest decisions.",
+        ]
+        if uniformity < 55.0:
+            recommendations.append("Inspect uneven drying across the field because maturity may not be uniform.")
+        else:
+            recommendations.append("Maintain routine field checks while scheduling the next harvest assessment.")
+        return recommendations[:3]
+
+    if health_band == "unhealthy_damaged":
+        recommendations = [
+            "Inspect the affected area on-site for nutrient stress, water limitations, pests, or leaf damage.",
+            "Compare weak patches with nearby healthy sections to narrow down the likely source of stress.",
+            "Rescan after corrective action under similar daylight to verify whether the condition improves.",
+        ]
+        return recommendations[:3]
+
+    recommendations = [
+        "Maintain the current irrigation, nutrition, and scouting routine to keep this status stable.",
+        "Repeat the scan under similar lighting so future comparisons stay reliable.",
+    ]
+    if uniformity < 55.0:
+        recommendations.append("Check slightly uneven areas early before the stress becomes more visible.")
+    else:
+        recommendations.append("Continue regular field validation even when the image looks stable.")
+    return recommendations[:3]
+
+
+def build_farmer_result_payload(entry: dict[str, Any], analysis: dict[str, Any] | None) -> dict[str, Any]:
+    report = analysis.get("report", {}) if isinstance(analysis, dict) else {}
+    model_result = report.get("model_result", {}) if isinstance(report, dict) else {}
+    if not isinstance(model_result, dict):
+        model_result = {}
+    model_result = {
+        "health_band": entry.get("health_band", ""),
+        **model_result,
+    }
+    farmer_features = analysis.get("farmer_features", {}) if isinstance(analysis, dict) else {}
+    vegetation_indices = analysis.get("vegetation_indices_analysis", {}) if isinstance(analysis, dict) else {}
+    history_entry = build_history_entry_payload(entry)
+
+    status_items = [
+        {"label": "Phenological Stage", "value": _phenological_stage_label(model_result)},
+        {"label": "Healthiness", "value": _healthiness_label(model_result)},
+        {
+            "label": "Canopy Cover",
+            "value": _format_metric_value(vegetation_indices.get("percent_canopy_cover"), "%"),
+        },
+        {
+            "label": "Vigor",
+            "value": _format_metric_value(farmer_features.get("vegetation_vigor_score"), "/100"),
+        },
+        {
+            "label": "Stand Uniformity",
+            "value": _format_metric_value(vegetation_indices.get("stand_uniformity_score"), "/100"),
+        },
+        {
+            "label": "Green Coverage",
+            "value": _format_metric_value(farmer_features.get("green_coverage_pct"), "%"),
+        },
+    ]
+
+    return {
+        **history_entry,
+        "original_url": entry.get("original_url") or "",
+        "heatzone_url": entry.get("heatzone_url") or "",
+        "summary": entry.get("summary") or report.get("one_line_summary") or history_entry["summary"],
+        "status": status_items,
+        "recommendations": _compact_farmer_recommendations(
+            analysis,
+            model_result,
+            farmer_features,
+            vegetation_indices,
+        ),
+    }
+
+
 def _try_font(size: int, bold: bool = False):
     try:
         from PIL import ImageFont
@@ -2241,13 +2419,32 @@ def dashboard_page():
         return redirect(url_for("login_page"))
 
     user = current_user()
+    entries = load_user_results_index(user.get("user_id", ""))
     site_url = request.url_root.rstrip("/")
+    if is_secret_user(user):
+        return render_template(
+            "admin_dashboard.html",
+            username=to_upper_text(user.get("username", ""), "USER"),
+            privilege=to_upper_text(user.get("privilege", ""), "USER"),
+            upload_logs=session.get("upload_logs", []),
+            entries=entries,
+            canonical_url=f"{site_url}/dashboard",
+        )
+
+    requested_window = str(request.args.get("window", "home")).strip().lower()
+    initial_window = {
+        "agrivision": "home",
+        "home": "home",
+        "upload": "upload",
+        "history": "history",
+        "results": "history",
+    }.get(requested_window, "home")
     return render_template(
         "index.html",
-        username=to_upper_text(user.get("username", ""), "USER"),
-        privilege=to_upper_text(user.get("privilege", ""), "USER"),
-        upload_logs=session.get("upload_logs", []),
-        entries=load_user_results_index(user.get("user_id", "")),
+        username=user.get("username", "Farmer"),
+        history_entries=[build_history_entry_payload(entry) for entry in entries],
+        initial_window=initial_window,
+        initial_result_id=str(request.args.get("result", "")).strip(),
         canonical_url=f"{site_url}/dashboard",
     )
 
@@ -2256,6 +2453,8 @@ def dashboard_page():
 def tutorial_page():
     if not require_auth():
         return redirect(url_for("login_page"))
+    if not is_secret_user():
+        return redirect(url_for("dashboard_page"))
 
     user = current_user()
     site_url = request.url_root.rstrip("/")
@@ -2271,6 +2470,8 @@ def tutorial_page():
 def results_page():
     if not require_auth():
         return redirect(url_for("login_page"))
+    if not is_secret_user():
+        return redirect(url_for("dashboard_page", window="history"))
     return redirect(url_for("dashboard_page", window="results"))
 
 
@@ -2279,6 +2480,8 @@ def result_view(image_id: str):
     if not require_auth():
         return redirect(url_for("login_page"))
     user = current_user()
+    if not is_secret_user(user):
+        return redirect(url_for("dashboard_page", window="upload", result=image_id))
     user_id = user.get("user_id", "")
     entry = get_result_entry(user_id, image_id)
     if not entry:
@@ -2288,6 +2491,29 @@ def result_view(image_id: str):
     site_url = request.url_root.rstrip("/")
     return render_template(
         "result-view.html",
+        result=entry,
+        analysis=analysis,
+        personalization=personalization,
+        canonical_url=f"{site_url}/results/{image_id}",
+    )
+
+
+@app.route("/results/<image_id>/embedded")
+def embedded_result_view(image_id: str):
+    if not require_auth():
+        return redirect(url_for("login_page"))
+
+    user = current_user()
+    user_id = user.get("user_id", "")
+    entry = get_result_entry(user_id, image_id)
+    if not entry:
+        return redirect(url_for("dashboard_page", window="history"))
+
+    analysis = load_result_analysis(entry)
+    personalization = read_result_personalization(analysis)
+    site_url = request.url_root.rstrip("/")
+    return render_template(
+        "embedded_result_view.html",
         result=entry,
         analysis=analysis,
         personalization=personalization,
@@ -2329,6 +2555,8 @@ def result_report_pdf(image_id: str):
     if not require_auth():
         return redirect(url_for("login_page"))
     user = current_user()
+    if not is_secret_user(user):
+        return redirect(url_for("dashboard_page", window="upload", result=image_id))
     entry = get_result_entry(user.get("user_id", ""), image_id)
     if not entry:
         return redirect(url_for("results_page"))
@@ -2348,6 +2576,8 @@ def result_report_pdf(image_id: str):
 def get_result_customization(image_id: str):
     if not require_auth():
         return jsonify({"error": "Unauthorized"}), 401
+    if not is_secret_user():
+        return jsonify({"error": "Forbidden"}), 403
     user = current_user()
     entry = get_result_entry(user.get("user_id", ""), image_id)
     if not entry:
@@ -2361,6 +2591,8 @@ def get_result_customization(image_id: str):
 def update_result_customization(image_id: str):
     if not require_auth():
         return jsonify({"error": "Unauthorized"}), 401
+    if not is_secret_user():
+        return jsonify({"error": "Forbidden"}), 403
     user = current_user()
     user_id = user.get("user_id", "")
     entry = get_result_entry(user_id, image_id)
@@ -2426,6 +2658,8 @@ def rerun_result(image_id: str):
     if not require_auth():
         return redirect(url_for("login_page"))
     user = current_user()
+    if not is_secret_user(user):
+        return redirect(url_for("dashboard_page", window="upload", result=image_id))
     user_id = user.get("user_id", "")
     entry = get_result_entry(user_id, image_id)
     if not entry:
@@ -2534,6 +2768,20 @@ def delete_result(image_id: str):
         return jsonify({"error": str(exc)}), 500
 
 
+@app.get("/api/results/<image_id>/summary")
+def result_summary(image_id: str):
+    if not require_auth():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    user = current_user()
+    entry = get_result_entry(user.get("user_id", ""), image_id)
+    if not entry:
+        return jsonify({"error": "Result not found"}), 404
+
+    analysis = load_result_analysis(entry)
+    return jsonify({"result": build_farmer_result_payload(entry, analysis)})
+
+
 @app.route("/login", methods=["GET"])
 def login_page():
     if require_auth():
@@ -2546,6 +2794,18 @@ def login_page():
 @app.route("/login", methods=["POST"])
 def login():
     site_url = request.url_root.rstrip("/")
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "").strip()
+
+    if not username or not password:
+        return render_template("login.html", error="Username and password are required.", success="", canonical_url=f"{site_url}/login")
+
+    if username.lower() == SECRET_ADMIN_USERNAME:
+        if password == SECRET_ADMIN_PASSWORD:
+            session["user"] = secret_admin_session()
+            return redirect(url_for("dashboard_page"))
+        return render_template("login.html", error="Invalid username or password.", success="", canonical_url=f"{site_url}/login")
+
     if supabase is None:
         return render_template(
             "login.html",
@@ -2553,12 +2813,6 @@ def login():
             success="",
             canonical_url=f"{site_url}/login",
         )
-
-    username = request.form.get("username", "").strip()
-    password = request.form.get("password", "").strip()
-
-    if not username or not password:
-        return render_template("login.html", error="Username and password are required.", success="", canonical_url=f"{site_url}/login")
 
     query = (
         supabase.table(SUPABASE_TABLE)
@@ -2608,6 +2862,8 @@ def register():
 
     if not username or not password:
         return render_template("register.html", error="Username and password are required.", canonical_url=f"{site_url}/register")
+    if username.lower() == SECRET_ADMIN_USERNAME:
+        return render_template("register.html", error="That username is reserved.", canonical_url=f"{site_url}/register")
 
     existing = (
         supabase.table(SUPABASE_TABLE)
@@ -2637,7 +2893,11 @@ def handle_upload_too_large(_exc):
         user = current_user() or {}
         user_id = user.get("user_id", "unknown-user")
         add_upload_log(user_id, "Upload failed: file too large (max 12 MB).", "error")
+        if request_wants_json_response():
+            return jsonify({"error": "File too large. Maximum size is 12 MB."}), 413
         return redirect(url_for("dashboard_page"))
+    if request_wants_json_response():
+        return jsonify({"error": "Unauthorized"}), 401
     return redirect(url_for("login_page"))
 
 
@@ -2648,6 +2908,7 @@ def upload_image():
 
     user = current_user()
     user_id = user.get("user_id", "unknown-user")
+    wants_json = request_wants_json_response()
     uploaded_file = request.files.get("image")
     file_label = uploaded_file.filename if uploaded_file else "no-file"
 
@@ -2655,10 +2916,14 @@ def upload_image():
 
     if not uploaded_file or not uploaded_file.filename:
         add_upload_log(user_id, "Upload failed: no file selected", "error")
+        if wants_json:
+            return jsonify({"error": "No image selected."}), 400
         return redirect(url_for("dashboard_page"))
 
     if not is_allowed_image(uploaded_file.filename):
         add_upload_log(user_id, f"Upload failed: unsupported file type ({uploaded_file.filename})", "error")
+        if wants_json:
+            return jsonify({"error": "Unsupported file type. Use JPG, PNG, WEBP, GIF, or BMP."}), 400
         return redirect(url_for("dashboard_page"))
 
     try:
@@ -2718,9 +2983,21 @@ def upload_image():
         except OSError:
             pass
         add_upload_log(user_id, f"Upload succeeded ({stamped_name}) -> Result ID {image_id}", "success")
-        return redirect(url_for("result_view", image_id=image_id))
+        if wants_json:
+            return jsonify(
+                {
+                    "ok": True,
+                    "result": build_farmer_result_payload(entry, processed["analysis"]),
+                    "history_entry": build_history_entry_payload(entry),
+                }
+            )
+        if is_secret_user(user):
+            return redirect(url_for("result_view", image_id=image_id))
+        return redirect(url_for("dashboard_page", window="upload", result=image_id))
     except Exception as exc:
         add_upload_log(user_id, f"Upload failed: {exc}", "error")
+        if wants_json:
+            return jsonify({"error": str(exc)}), 500
 
     return redirect(url_for("dashboard_page"))
 
@@ -2742,6 +3019,8 @@ def update_username():
     new_username = (data.get("username", "") or "").strip()
     if not new_username:
         return jsonify({"error": "Username is required"}), 400
+    if new_username.lower() == SECRET_ADMIN_USERNAME:
+        return jsonify({"error": "That username is reserved"}), 400
 
     user = current_user()
     user_id = user.get("user_id")

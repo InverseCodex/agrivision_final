@@ -1,3 +1,13 @@
+---
+title: AgriVision Website
+emoji: "\U0001F33E"
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+fullWidth: true
+---
+
 # AgriVision Thesis Website
 
 AgriVision is a Flask-based web application for thesis demonstration and evaluation. It allows a user to upload an RGB drone or field image, generate a heatzone visualization, compute vegetation-related proxy metrics, review segment-level findings, save result personalization, and export a PDF report for presentation or documentation.

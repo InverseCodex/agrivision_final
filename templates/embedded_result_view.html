@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ personalization.title or ('Result ' ~ result.image_id) }} | AgriVision</title>
+    <meta name="description" content="Embedded AgriVision crop and segment analysis view.">
+    <meta name="robots" content="noindex,nofollow">
+    <link rel="canonical" href="{{ canonical_url }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/result-view.css') }}">
+</head>
+<body class="embedded-result-body" data-force-theme="minimalist" data-result-id="{{ result.image_id }}">
+    <main class="result-page-layout embedded-result-layout">
+        <section class="embedded-crop-shell">
+            <div class="crop-analysis-layout mode-edit" id="crop-analysis-layout">
+                <div class="crop-draw-pane">
+                    <div class="crop-draw-toolbar">
+                        <button id="reset-crop-shape" class="viewer-btn" type="button">Reset Shape</button>
+                        <button id="clear-crop-results" class="viewer-btn" type="button">Clear Results</button>
+                        <button id="run-cropped-analysis" class="viewer-btn viewer-btn-active" type="button">Analyze Cropped Area</button>
+                    </div>
+                    <div class="mobile-crop-presets" id="mobile-crop-presets">
+                        <p>Quick crop (mobile):</p>
+                        <div class="mobile-crop-preset-buttons">
+                            <button class="viewer-btn mobile-preset-btn" type="button" data-crop-preset="full">Full</button>
+                            <button class="viewer-btn mobile-preset-btn" type="button" data-crop-preset="center">Center</button>
+                            <button class="viewer-btn mobile-preset-btn" type="button" data-crop-preset="top">Top</button>
+                            <button class="viewer-btn mobile-preset-btn" type="button" data-crop-preset="bottom">Bottom</button>
+                            <button class="viewer-btn mobile-preset-btn" type="button" data-crop-preset="left">Left</button>
+                            <button class="viewer-btn mobile-preset-btn" type="button" data-crop-preset="right">Right</button>
+                        </div>
+                    </div>
+                    <div class="crop-draw-frame" id="crop-draw-frame">
+                        <img id="crop-source-image" src="{{ result.original_url }}" alt="Original image for cropping">
+                        <canvas id="crop-overlay-canvas" aria-label="Crop shape canvas"></canvas>
+                    </div>
+                    <p id="crop-analysis-status" class="crop-analysis-status">Drag any corner point to adjust the crop shape, then click <strong>Analyze Cropped Area</strong>.</p>
+                </div>
+
+                <div class="crop-output-pane">
+                    <div class="crop-output-toolbar">
+                        <div class="seg-view-toggle" role="group" aria-label="Segment image view">
+                            <button id="segment-view-original" class="viewer-btn" type="button">Original</button>
+                            <button id="segment-view-heatzone" class="viewer-btn viewer-btn-active" type="button">AI Image</button>
+                        </div>
+                        <button id="toggle-focus-mode" class="viewer-btn" type="button" aria-pressed="false" aria-controls="segment-focus-modal">Advanced Mode</button>
+                        <button id="show-crop-tool" class="viewer-btn" type="button">Adjust Crop</button>
+                    </div>
+                    <section class="segment-visual-section" aria-labelledby="segment-visual-title">
+                        <div class="segment-visual-header">
+                            <h3 id="segment-visual-title">Segment View</h3>
+                        </div>
+                        <div class="segment-visual-frame is-heatzone" id="segment-visual-frame">
+                            <img id="cropped-original-preview" alt="Cropped original preview">
+                            <img id="cropped-heatzone-preview" alt="Cropped heatzone preview">
+                            <div id="segment-visual-grid" class="segment-visual-grid"></div>
+                        </div>
+                        <div class="segment-mask-legend" aria-label="Segment damage legend">
+                            <span class="legend-pill legend-critical">Red - Critical/Damaged</span>
+                            <span class="legend-pill legend-likely">Orange - Likely Damaged</span>
+                            <span class="legend-pill legend-healthy">Green - Healthy</span>
+                        </div>
+                    </section>
+                    <div class="segment-results-summary crop-recommendation-card">
+                        <h3>Specific Segment Recommendation</h3>
+                        <p class="segment-summary-selected"><strong>Selected Segment:</strong> <span id="rec-seg-id">-</span></p>
+                        <p class="segment-summary-reco"><strong>Recommendation:</strong> <span id="rec-seg-reco">-</span></p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <div id="segment-focus-modal" class="segment-focus-modal" hidden aria-hidden="true">
+        <div id="segment-focus-backdrop" class="segment-focus-backdrop"></div>
+        <div class="segment-focus-dialog" role="dialog" aria-modal="true" aria-labelledby="focus-segment-title">
+            <button id="close-focus-mode" class="viewer-btn segment-focus-close" type="button">Close</button>
+            <div class="segment-focus-head">
+                <h3>Advanced Mode</h3>
+                <p id="focus-segment-title">Select a segment to inspect it closely.</p>
+            </div>
+            <div class="segment-focus-grid">
+                <div class="segment-focus-card">
+                    <h4>Enlarged Segment View</h4>
+                    <p id="focus-segment-view-label" class="focus-segment-view-label">Current mode: AI Image</p>
+                    <div id="focus-segment-preview" class="focus-segment-preview">
+                        <span id="focus-segment-preview-empty">Select a segment to preview it.</span>
+                    </div>
+                </div>
+                <div class="segment-focus-card">
+                    <h4>Segment Snapshot</h4>
+                    <div id="focus-parameter-list" class="focus-parameter-list"></div>
+                </div>
+                <div class="segment-focus-card">
+                    <h4>Recommendations</h4>
+                    <ul id="focus-recommendation-list" class="focus-recommendation-list">
+                        <li>Select a segment to load guidance.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script id="initial-personalization" type="application/json">{{ personalization|tojson }}</script>
+    <script src="{{ url_for('static', filename='js/result-view.js') }}" defer></script>
+</body>
+</html>

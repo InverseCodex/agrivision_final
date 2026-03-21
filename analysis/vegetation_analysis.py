@@ -95,7 +95,7 @@ def rgb_to_vegetation_proxies(snapshot: RGBSnapshot) -> Tuple[float, float, floa
     eps = 1e-8
 
     if "mini 4 pro" in snapshot.camera_model.strip().lower():
-        # DJI Mini 4 Pro files can vary with in-camera processing, so use normalized
+        # DJI Mini 4 Pro Compatible
         # channel balance to make the RGB proxies less sensitive to exposure shifts.
         total = r + g + b + eps
         r = r / total

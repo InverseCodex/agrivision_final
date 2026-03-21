@@ -203,7 +203,7 @@
 
     nextButton.addEventListener("click", () => {
         if (currentStep >= steps.length - 1) {
-            window.location.href = "/?window=upload";
+            window.location.href = "/dashboard?window=upload";
             return;
         }
         renderStep(currentStep + 1);

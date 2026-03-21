@@ -1,197 +1,219 @@
 <!DOCTYPE html>
-
 <html lang="en">
-    <head>
-        <meta charset="utf-8">
-        <meta http-equiv="X-UA-Compatible" content="IE=edge">
-        <title>Dashboard | AgriVision</title>
-        <meta name="description" content="AgriVision dashboard for uploading field images, reviewing vegetation analysis, and exporting thesis-ready reports.">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dashboard | AgriVision</title>
+    <meta name="description" content="AgriVision farmer dashboard for uploading crop images, reviewing status, and checking image history.">
+    <meta name="robots" content="noindex,nofollow">
+    <link rel="canonical" href="{{ canonical_url }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Sora:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/normal-dashboard.css') }}">
+</head>
+<body>
+    <div class="dashboard-backdrop"></div>
 
-        <!-- Font Links -->
-         <!-- 1. Inter -->
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+    <button
+        class="mobile-nav-toggle"
+        id="mobile-nav-toggle"
+        type="button"
+        aria-controls="dashboard-sidebar"
+        aria-expanded="false"
+        aria-label="Toggle navigation"
+    >
+        <span></span>
+        <span></span>
+        <span></span>
+    </button>
 
-        <!-- 2 Manrope -->
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Manrope:wght@200..800&display=swap" rel="stylesheet">
-
-        <!-- 3. Source Sans 3 -->
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Manrope:wght@200..800&family=Source+Sans+3:ital,wght@0,200..900;1,200..900&display=swap" rel="stylesheet">
-        <!-- Other Dependencies -->
-
-
-        <!-- Main CSS Links -->
-        <link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">
-    </head>
-
-    <body>
-        <!-- FOR MOBILE USERS -->
-        <button
-            class="mobile-nav-toggle"
-            id="mobile-nav-toggle"
-            type="button"
-            aria-controls="sidebar-nav"
-            aria-expanded="false"
-            aria-label="Toggle navigation"
-        >
-            <ion-icon name="menu-outline"></ion-icon>
-        </button>
-        <div class="navbar-overlay" id="navbar-overlay" aria-hidden="true"></div>
-
-
-        <!-- FOR PC USERS -->
-
-         <div class="navbar-parent" id="sidebar-nav"> <!-- NAVBAR CONTAINER OPENING -->
-
-            <!-- NAVBAR CHILD (USER INFO) -->
-            <div class="navbar-child-user">
-
-                <div class="user-info">
-
-                    <div class="user-image-background">
-                    <ion-icon class="user-image" name="person-outline"></ion-icon>
-                    </div>
-                    <div class="user-authentication">
-                        <p class="user-name">{{ username }}</p>
-                        <p class="user-class">{{ privilege }}</p>
-                    </div>
-                </div>
-
+    <div class="dashboard-shell">
+        <aside class="dashboard-sidebar" id="dashboard-sidebar">
+            <div class="sidebar-brand">
+                <p class="brand-kicker">Farmer Workspace</p>
+                <h1>AgriVision</h1>
+                <p class="brand-copy">Upload field images, review the latest status, and revisit earlier analyses from one place.</p>
             </div>
 
-            <!-- NAVBAR CHILD (NAVBAR BUTTONS) -->
-            <div class="navbar-child-navigation">
-
-                <button class="navbar-button button-active" id="upload-button">
-                    <ion-icon name="image-outline"></ion-icon>
-                    <p>Upload Images</p>
-                </button>
-
-                <button class="navbar-button" id="results-button">
-                    <ion-icon name="eye-outline"></ion-icon>
-                    <p>View Results</p>
-                </button>
-
-                <button class="navbar-button" id="settings-button">
-                    <ion-icon name="cog-outline"></ion-icon>
-                    <p>Settings</p>
-                </button>
-
-                <button class="navbar-button" id="help-button" data-nav-url="{{ url_for('tutorial_page') }}">
-                    <ion-icon name="help-outline"></ion-icon>
-                    <p>Tutorial</p>
-                </button>
-
-                <button class="navbar-button" id="admin-button">
-                    <ion-icon name="eye-outline"></ion-icon>
-                    <p>View Logs</p>
-                </button>
-
+            <div class="sidebar-user">
+                <p class="user-label">Signed in as</p>
+                <p class="user-name">{{ username }}</p>
             </div>
 
-            <!-- NAVBAR CHILD (LOGOUT BUTTON) -->
-            <div class="navbar-child-bottom">
+            <nav class="sidebar-nav" aria-label="Dashboard navigation">
+                <button class="nav-button is-active" id="agrivision-button" type="button" data-window-target="home">
+                    <span class="nav-index">01</span>
+                    <span>AGRIVISION</span>
+                </button>
+                <button class="nav-button" id="home-button" type="button" data-window-target="home">
+                    <span class="nav-index">02</span>
+                    <span>HOME</span>
+                </button>
+                <button class="nav-button" id="upload-button" type="button" data-window-target="upload">
+                    <span class="nav-index">03</span>
+                    <span>UPLOAD</span>
+                </button>
+                <button class="nav-button" id="history-button" type="button" data-window-target="history">
+                    <span class="nav-index">04</span>
+                    <span>HISTORY</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
                 <form action="/account/logout" method="POST">
-                    <button class='logout-button' type="submit">LOG OUT</button>
+                    <button class="logout-button" type="submit">LOGOUT</button>
                 </form>
             </div>
+        </aside>
 
-         </div> <!-- NAVBAR PARENT CLOSING -->
-
-        <!-- MAIN BODY -->
-        <div class="content-parent">
-
-            <!-- Upload Content Window -->
-            <div class="content-window window-active" id="upload-window">
-                
-                <!-- Generic Header -->
-                <div class="content-header" id="upload-header">
-                    <h1>Upload Image</h1>
-                    <p>This is where you upload your images for analysis.</p>
+        <main class="dashboard-main">
+            <section class="content-window is-active" id="home-window">
+                <div class="window-header">
+                    <p class="window-kicker">Intro</p>
+                    <h2>AgriVision project overview and acknowledgements</h2>
+                    <p>This space is reserved for the introduction, context, and acknowledgement section. You can replace the text below with the final project narrative later.</p>
                 </div>
 
-                <div class="upload-container">
+                <div class="home-grid">
+                    <article class="home-card home-card-feature">
+                        <p class="section-label">Project Introduction</p>
+                        <h3>Use this as the landing page after login</h3>
+                        <p>AgriVision helps farmers upload an aerial image, view a simplified crop status, and revisit previous analyses without switching to a separate result page.</p>
+                    </article>
 
-                    <div class="upload-description">
-                        <h1>Manually Upload Images</h1>
-                    </div>
+                    <article class="home-card">
+                        <p class="section-label">Acknowledgements</p>
+                        <h3>People involved in the project</h3>
+                        <p>Add the thesis advisers, developers, researchers, pilot users, and partner institutions here.</p>
+                    </article>
 
-                    <!-- Container for uploading purposes-->
+                    <article class="home-card">
+                        <p class="section-label">Current Flow</p>
+                        <h3>What the farmer sees</h3>
+                        <p>The normal experience now focuses only on Home, Upload, and History so the main workflow stays simple and direct.</p>
+                    </article>
+                </div>
+            </section>
 
-                    <div class="upload-functions">
-                        <div class="upload-image">
+            <section class="content-window" id="upload-window">
+                <div class="window-header">
+                    <p class="window-kicker">Upload Workspace</p>
+                    <h2>Upload image and review the result in the same window</h2>
+                    <p>The left side handles the image workflow while the right side keeps only the simplified status and recommendation panels.</p>
+                </div>
 
+                <div class="upload-layout">
+                    <section class="upload-stage">
+                        <div class="stage-topbar">
+                            <div>
+                                <p class="section-label">Main Workspace</p>
+                                <h3 id="upload-stage-title">Upload Image</h3>
+                            </div>
+                            <span class="state-chip" id="upload-state-chip">Waiting for image</span>
+                        </div>
+
+                        <div class="upload-form-state" id="upload-form-state">
                             <form action="/upload-image" method="POST" enctype="multipart/form-data" class="upload-form" id="upload-form">
-                                <input id="image-upload" type="file" name="image" accept="image/*" required>
+                                <input id="image-upload" type="file" name="image" accept="image/*" required hidden>
+
                                 <div class="upload-dropzone" id="upload-dropzone" tabindex="0" role="button" aria-label="Upload image">
-                                    <div class="dropzone-icon">
-                                        <ion-icon name="cloud-upload-outline"></ion-icon>
+                                    <div class="dropzone-mark">+</div>
+                                    <h3>Drop image here or click to browse</h3>
+                                    <p>Supported formats: JPG, PNG, WEBP, GIF, BMP</p>
+                                </div>
+
+                                <div class="upload-details">
+                                    <div class="detail-box">
+                                        <span>Selected file</span>
+                                        <strong id="file-name">No image selected</strong>
                                     </div>
-                                    <h3>Drop image here</h3>
-                                    <p>or click to browse files</p>
+                                    <div class="detail-box">
+                                        <span>File size</span>
+                                        <strong id="file-size">-</strong>
+                                    </div>
                                 </div>
 
-                                <div class="file-meta">
-                                    <p class="file-meta-label">Selected file</p>
-                                    <p id="file-name" class="file-name">No image selected</p>
-                                    <p id="file-size" class="file-size">-</p>
+                                <div class="upload-actions">
+                                    <button type="submit" class="primary-button" id="upload-submit" disabled>Upload Image</button>
+                                    <button type="button" class="secondary-button" id="clear-file">Clear</button>
                                 </div>
 
-                                <div class="upload-hints">
-                                    <span>Formats: JPG, PNG, WEBP</span>
-                                    <span>Maximum file size: 10 MB</span>
-                                </div>
-
-                                <div class="file-controls">
-                                    <button type="submit" class="upload-btn" id="upload-submit" disabled>Upload Image</button>
-                                    <button type="button" class="upload-btn secondary-upload-btn" id="clear-file">Clear</button>
-                                </div>
-                                <p id="upload-status" class="upload-status" data-state="idle" aria-live="polite">Select an image to enable upload.</p>
+                                <p class="upload-status" id="upload-status" aria-live="polite">Select an image to begin analysis.</p>
                             </form>
 
-                        </div>
-
-                        <!-- COntainer for image preview -->
-                        <div class="image-preview" id="image-preview-panel">
-                            <img id="preview-image" src="" alt="Selected image preview">
-                            <div class="preview-placeholder" id="preview-placeholder">
-                                <ion-icon name="images-outline"></ion-icon>
-                                <p>Preview appears here after selecting an image</p>
+                            <div class="preview-panel" id="image-preview-panel">
+                                <img id="preview-image" src="" alt="Selected image preview">
+                                <div class="preview-placeholder" id="preview-placeholder">
+                                    <p class="section-label">Preview</p>
+                                    <h3>Image preview appears here</h3>
+                                    <p>The selected image will be shown before upload so the farmer can confirm the correct file.</p>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
+                        <div class="upload-result-state" id="upload-result-state" hidden>
+                            <div class="result-toolbar">
+                                <button class="secondary-button" id="back-to-upload" type="button">UPLOAD AGAIN</button>
+                            </div>
+
+                            <div class="embedded-result-shell">
+                                <iframe
+                                    id="result-embed-frame"
+                                    class="result-embed-frame"
+                                    title="AgriVision crop segmentation result"
+                                    loading="eager"
+                                ></iframe>
+                            </div>
+                        </div>
+                    </section>
+
+                    <aside class="insight-column">
+                        <article class="insight-card">
+                            <div class="card-header">
+                                <p class="section-label">Status</p>
+                                <h3>Farmer-friendly status</h3>
+                            </div>
+                            <ul class="status-list" id="status-list">
+                                <li class="status-item"><span>Phenological Stage</span><strong>-</strong></li>
+                                <li class="status-item"><span>Healthiness</span><strong>-</strong></li>
+                                <li class="status-item"><span>Canopy Cover</span><strong>-</strong></li>
+                                <li class="status-item"><span>Vigor</span><strong>-</strong></li>
+                                <li class="status-item"><span>Stand Uniformity</span><strong>-</strong></li>
+                                <li class="status-item"><span>Green Coverage</span><strong>-</strong></li>
+                            </ul>
+                        </article>
+
+                        <article class="insight-card">
+                            <div class="card-header">
+                                <p class="section-label">Recommendation</p>
+                                <h3>Short action guide</h3>
+                            </div>
+                            <ul class="recommendation-list" id="recommendation-list">
+                                <li>Upload an image or open one from history to view recommendations here.</li>
+                            </ul>
+                        </article>
+                    </aside>
                 </div>
-            </div>
+            </section>
 
-
-
-
-
-            <div class="content-window" id="results-window">
-
-                <div class="content-header" id="results-header">
-                    <h1>View Results</h1>
-                    <p>Open a result to view original image, heatzone, and farmer-friendly analysis.</p>
+            <section class="content-window" id="history-window">
+                <div class="window-header">
+                    <p class="window-kicker">History</p>
+                    <h2>Review previous image analyses</h2>
+                    <p>Viewing a result here now opens the Upload tab and shows the selected result inside the same workspace.</p>
                 </div>
 
-                <div class="results-controls">
-                    <input id="result-search" type="text" placeholder="Search by Result ID...">
-                    <select id="result-band-filter">
-                        <option value="all">All Bands</option>
+                <div class="history-controls">
+                    <input id="history-search" type="text" placeholder="Search by Result ID...">
+                    <select id="history-band-filter">
+                        <option value="all">All Statuses</option>
                         <option value="healthy">Healthy</option>
-                        <option value="mature">Mature</option>
-                        <option value="watch">Watch</option>
-                        <option value="stressed">Stressed</option>
-                        <option value="critical">Critical</option>
+                        <option value="mature">Likely Mature</option>
+                        <option value="unhealthy_damaged">Needs Attention</option>
                     </select>
-                    <select id="result-sort">
+                    <select id="history-sort">
                         <option value="newest">Newest First</option>
                         <option value="oldest">Oldest First</option>
                         <option value="score_desc">Highest Score</option>
@@ -199,198 +221,51 @@
                     </select>
                 </div>
 
-                <div class="results-gallery" id="results-gallery">
-                    {% if entries and entries|length > 0 %}
-                        {% for entry in entries %}
+                <div class="history-grid" id="history-grid">
+                    {% if history_entries and history_entries|length > 0 %}
+                        {% for entry in history_entries %}
                         <article
-                            class="result-card"
+                            class="history-card"
                             data-result-id="{{ entry.image_id }}"
-                            data-health-band="{{ entry.health_band|lower }}"
+                            data-health-band="{{ entry.health_band }}"
                             data-health-score="{{ entry.health_score }}"
                             data-created-at="{{ entry.created_at }}"
                         >
-                            <img class="result-thumb" src="{{ entry.heatzone_url }}" alt="Result {{ entry.image_id }} preview">
-                            <div class="result-card-info">
-                                <h3>{{ entry.display_title or ('Result ' ~ entry.image_id) }}</h3>
+                            <div class="history-card-media">
+                                {% if entry.heatzone_url %}
+                                <img src="{{ entry.heatzone_url }}" alt="Result {{ entry.image_id }} preview">
+                                {% else %}
+                                <div class="history-card-fallback">No preview</div>
+                                {% endif %}
+                            </div>
+                            <div class="history-card-body">
+                                <div class="history-meta">
+                                    <span class="history-badge">{{ entry.health_band_label }}</span>
+                                    <span>{{ entry.created_at }}</span>
+                                </div>
+                                <h3>{{ entry.display_title }}</h3>
                                 <p>{{ entry.summary }}</p>
-                                <p>{{ entry.created_at }} | Band: {{ entry.health_band|upper }}</p>
-                                <div class="result-actions">
-                                    <a class="result-open-link" href="/results/{{ entry.image_id }}">Open Result</a>
-                                    <a class="result-open-link secondary" href="/results/{{ entry.image_id }}/report.pdf">PDF</a>
-                                    <button type="button" class="result-delete-btn" data-result-id="{{ entry.image_id }}">Delete</button>
+                                <div class="history-actions">
+                                    <button class="history-button primary" type="button" data-action="view" data-result-id="{{ entry.image_id }}">View Result</button>
+                                    <button class="history-button secondary" type="button" data-action="delete" data-result-id="{{ entry.image_id }}">Delete</button>
                                 </div>
                             </div>
                         </article>
                         {% endfor %}
                     {% else %}
-                    <div class="no-results-state">
-                        <h3>No Results</h3>
-                        <p>Upload and process an image to see analysis results here.</p>
+                    <div class="history-empty" id="history-empty-state">
+                        <h3>No results yet</h3>
+                        <p>Upload and analyze an image to build your history list.</p>
                     </div>
                     {% endif %}
                 </div>
-            </div>
+            </section>
+        </main>
+    </div>
 
-            <div class="content-window" id="settings-window">
-
-                <div class="content-header" id="upload-header">
-                    <h1>Settings</h1>
-                    <p>Change some website properties</p>
-                </div>
-
-                <div class="settings-panel" id="settings-panel">
-                    <div class="setting-group">
-                        <h2>Color Palette</h2>
-                        <p>Choose a visual preset for the dashboard.</p>
-                        <div class="theme-options" id="theme-options">
-                            <button class="theme-option" data-theme-value="default" type="button">Default</button>
-                            <button class="theme-option" data-theme-value="neon" type="button">Neon</button>
-                            <button class="theme-option" data-theme-value="minimalist" type="button">Minimalist</button>
-                        </div>
-                    </div>
-
-                    <div class="setting-group">
-                        <h2>Username</h2>
-                        <p>Update your display name for this browser session.</p>
-                        <form class="settings-form" id="username-form">
-                            <label for="username-input">Display Name</label>
-                            <input id="username-input" maxlength="24" placeholder="Enter username">
-                            <button type="submit" class="upload-btn">Save Username</button>
-                        </form>
-                    </div>
-
-                    <div class="setting-group">
-                        <h2>Accessibility</h2>
-                        <p>Reduce visual transitions and motion effects.</p>
-                        <label class="toggle-row" for="motion-toggle">
-                            <span>Enable UI animations</span>
-                            <input id="motion-toggle" type="checkbox" checked>
-                        </label>
-                    </div>
-
-                    <div class="setting-group">
-                        <h2>Reset</h2>
-                        <p>Restore all local settings to defaults.</p>
-                        <button id="reset-settings" type="button" class="upload-btn">Reset Settings</button>
-                    </div>
-                </div>
-
-
-
-            </div>
-            <div class="content-window" id="help-window">
-
-                <div class="content-header" id="help-header">
-                    <h1>Tutorial</h1>
-                    <p>Learn the website from upload to final analysis with a guided visual walkthrough.</p>
-                </div>
-
-                <div class="tutorial-shell" id="tutorial-shell">
-                    <section class="tutorial-banner">
-                        <div class="tutorial-banner-copy">
-                            <p class="tutorial-kicker">Guided Site Walkthrough</p>
-                            <h2>Step through the real workflow from start to finish</h2>
-                            <p>Open the Tutorial tab to enter this guided session. Each stage shows a mini version of the real dashboard, with motion cues, highlighted actions, and simple explanations for what the farmer should do next.</p>
-                        </div>
-                        <div class="tutorial-banner-actions">
-                            <button type="button" class="upload-btn" id="tutorial-begin">Begin Tutorial</button>
-                            <button type="button" class="upload-btn secondary-upload-btn" id="tutorial-exit-top">Finish Tutorial</button>
-                        </div>
-                    </section>
-
-                    <section class="tutorial-progress-panel">
-                        <div class="tutorial-stage-track" id="tutorial-stage-track">
-                            <button type="button" class="tutorial-stage-chip is-active" data-tutorial-step="0">1. Home Upload</button>
-                            <button type="button" class="tutorial-stage-chip" data-tutorial-step="1">2. Select Image</button>
-                            <button type="button" class="tutorial-stage-chip" data-tutorial-step="2">3. Results List</button>
-                            <button type="button" class="tutorial-stage-chip" data-tutorial-step="3">4. Crop & Segment</button>
-                            <button type="button" class="tutorial-stage-chip" data-tutorial-step="4">5. Recommendations</button>
-                            <button type="button" class="tutorial-stage-chip" data-tutorial-step="5">6. Advanced Results</button>
-                        </div>
-                        <div class="tutorial-stage-status">
-                            <p class="tour-step-label" id="tutorial-step-label">Step 1 of 6</p>
-                            <div class="tutorial-stage-progress-bar">
-                                <span id="tutorial-progress-fill"></span>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section class="tutorial-workspace">
-                        <article class="tutorial-story-card">
-                            <div class="tutorial-story-header">
-                                <div>
-                                    <p class="tour-step-label" id="tutorial-card-kicker">Welcome</p>
-                                    <h3 id="tutorial-card-title">Upload image from the home screen</h3>
-                                </div>
-                                <span class="tutorial-window-badge" id="tutorial-window-badge">Upload Window</span>
-                            </div>
-                            <p class="tutorial-story-body" id="tutorial-card-body">The workflow starts at the Upload Images home screen. This is where the farmer uploads the sample field image and begins analysis.</p>
-                            <div class="tutorial-focus-points" id="tutorial-focus-points"></div>
-                            <div class="tutorial-controls">
-                                <button type="button" class="upload-btn secondary-upload-btn" id="tutorial-prev">Back</button>
-                                <button type="button" class="upload-btn secondary-upload-btn" id="tutorial-exit-bottom">Finish Tutorial</button>
-                                <button type="button" class="upload-btn" id="tutorial-next">Next</button>
-                            </div>
-                        </article>
-
-                        <article class="tutorial-preview-frame">
-                            <div class="tutorial-preview-stage" id="tutorial-preview-stage"></div>
-                        </article>
-                    </section>
-
-                    <section class="tutorial-side-notes">
-                        <article class="help-feature-card">
-                            <h4>Result windows explained</h4>
-                            <p>The tutorial includes the crop and segment workspace, recommendation board, and advanced results panel so the farmer understands every result screen.</p>
-                        </article>
-                        <article class="help-feature-card">
-                            <h4>Looks like the real app</h4>
-                            <p>The preview cards reuse the same layout style as the website so the farmer learns by recognizing the real interface.</p>
-                        </article>
-                        <article class="help-feature-card">
-                            <h4>Finish anytime</h4>
-                            <p>Press Finish Tutorial at any stage and the dashboard returns to the Upload Images home tab.</p>
-                        </article>
-                    </section>
-                </div>
-
-            </div>
-            <div class="content-window" id="admin-window">
-
-                <div class="content-header" id="admin-header">
-                    <h1>View Logs</h1>
-                    <p>Examine system logs and administrative entries.</p>
-                </div>
-
-                <div class="logs-console">
-                    {% if upload_logs and upload_logs|length > 0 %}
-                    <ul class="logs-list">
-                        {% for log in upload_logs %}
-                        <li class="log-entry log-{{ log.level }}">
-                            <span class="log-time">[{{ log.timestamp }}]</span>
-                            <span class="log-message">{{ log.message }}</span>
-                        </li>
-                        {% endfor %}
-                    </ul>
-                    {% else %}
-                    <p class="logs-empty">No logs yet.</p>
-                    {% endif %}
-                </div>
-
-            </div>
-        </div>
-
-        <!-- Javascript Links -->
-        <script src="{{ url_for('static', filename='js/navbar-button.js') }}" defer></script>
-        <script src="{{ url_for('static', filename='js/results-tab.js') }}" defer></script>
-        <script src="{{ url_for('static', filename='js/settings.js') }}" defer></script>
-        <script src="{{ url_for('static', filename='js/user-privilege.js') }}" defer></script>
-        <script src="{{ url_for('static', filename='js/image-preview.js') }}" defer></script>
-        <script src="{{ url_for('static', filename='js/help-guide.js') }}" defer></script>
-
-        <!-- Ionicons -->
-        <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
-        <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
-    </body>
+    <script id="dashboard-state" type="application/json">
+        {{ {"initialWindow": initial_window, "initialResultId": initial_result_id}|tojson }}
+    </script>
+    <script src="{{ url_for('static', filename='js/normal-dashboard.js') }}" defer></script>
+</body>
 </html>
-

@@ -68,6 +68,12 @@ body {
     min-height: 100vh;
 }
 
+body.embedded-result-body {
+    min-height: 0;
+    background: transparent;
+    overflow: auto;
+}
+
 body.reduce-motion * {
     animation: none !important;
     transition: none !important;
@@ -138,6 +144,173 @@ body.reduce-motion * {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem;
     align-items: stretch;
+}
+
+body.embedded-result-body .result-page-layout {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    display: block;
+}
+
+body.embedded-result-body .embedded-crop-shell {
+    padding: 0.35rem 0.6rem 0.7rem;
+    margin: 0;
+}
+
+body.embedded-result-body .crop-analysis-layout {
+    gap: 0.75rem;
+}
+
+body.embedded-result-body .crop-draw-frame,
+body.embedded-result-body .segment-visual-frame {
+    margin-inline: auto;
+    width: 100%;
+    max-width: 100%;
+}
+
+body.embedded-result-body .crop-draw-frame {
+    min-height: 280px;
+}
+
+body.embedded-result-body .segment-visual-frame {
+    min-height: 260px;
+}
+
+body.embedded-result-body .crop-preview-card,
+body.embedded-result-body .segment-results-summary,
+body.embedded-result-body .segment-focus-card {
+    box-shadow: none;
+}
+
+body.embedded-result-body .crop-draw-toolbar,
+body.embedded-result-body .crop-output-toolbar {
+    gap: 0.5rem;
+    margin-bottom: 0.65rem;
+}
+
+body.embedded-result-body .crop-output-toolbar {
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+body.embedded-result-body .seg-view-toggle {
+    flex-wrap: wrap;
+}
+
+body.embedded-result-body .viewer-btn {
+    padding: 0.38rem 0.72rem;
+    font-size: clamp(0.74rem, 0.34vw + 0.68rem, 0.88rem);
+    border-radius: 0.8rem;
+}
+
+body.embedded-result-body .crop-analysis-status,
+body.embedded-result-body .segment-summary-selected,
+body.embedded-result-body .segment-summary-reco {
+    font-size: clamp(0.82rem, 0.38vw + 0.74rem, 0.96rem);
+    line-height: 1.5;
+}
+
+body.embedded-result-body .crop-preview-card {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    border-radius: 0;
+    overflow: visible;
+}
+
+body.embedded-result-body .crop-preview-card h3 {
+    margin: 0 0 0.35rem;
+    font-size: clamp(0.86rem, 0.82vw, 1rem);
+}
+
+body.embedded-result-body .crop-output-pane {
+    padding: 0.05rem 0.15rem 0;
+}
+
+body.embedded-result-body .segment-visual-section {
+    display: grid;
+    gap: 0.55rem;
+}
+
+body.embedded-result-body .segment-visual-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+body.embedded-result-body .segment-visual-header h3 {
+    margin: 0;
+    font-size: clamp(0.86rem, 0.42vw + 0.76rem, 1rem);
+    line-height: 1.25;
+}
+
+body.embedded-result-body .segment-mask-legend {
+    margin-top: 0;
+    gap: 0.35rem;
+}
+
+body.embedded-result-body .legend-pill {
+    padding: 0.22rem 0.48rem;
+    font-size: clamp(0.62rem, 0.3vw + 0.58rem, 0.72rem);
+}
+
+body.embedded-result-body .segment-results-summary {
+    margin-top: 0.15rem;
+    padding: 0.8rem 0.15rem 0;
+    border: 0;
+    border-top: 1px solid #d8e1e7;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+body.embedded-result-body .segment-results-summary::before,
+body.embedded-result-body .segment-results-summary::after,
+body.embedded-result-body .crop-preview-card::before,
+body.embedded-result-body .crop-preview-card::after {
+    display: none;
+}
+
+body.embedded-result-body .segment-results-summary h3 {
+    margin: 0 0 0.45rem;
+    font-size: clamp(0.9rem, 0.44vw + 0.8rem, 1.02rem);
+}
+
+body.embedded-result-body .segment-summary-selected,
+body.embedded-result-body .segment-summary-reco {
+    margin: 0;
+}
+
+body.embedded-result-body .segment-summary-reco {
+    margin-top: 0.2rem;
+}
+
+body.embedded-result-body .segment-summary-reco span {
+    font-size: clamp(0.88rem, 0.42vw + 0.78rem, 1rem);
+}
+
+body.embedded-result-body[data-theme="minimalist"] .segment-results-summary,
+body.embedded-result-body[data-theme="minimalist"] .crop-preview-card,
+body.embedded-result-body[data-theme="neon"] .segment-results-summary,
+body.embedded-result-body[data-theme="neon"] .crop-preview-card {
+    background: transparent;
+    border-color: transparent;
+}
+
+body.embedded-result-body .segment-visual-cell {
+    font-size: clamp(0.52rem, 0.24vw + 0.5rem, 0.66rem);
+    padding: 0.12rem 0.18rem;
+}
+
+body.embedded-result-body .segment-focus-dialog {
+    width: min(1180px, calc(100vw - 1rem));
+    max-height: calc(100vh - 1rem);
+}
+
+body.embedded-result-body .focus-segment-preview {
+    min-height: min(68vh, 560px);
 }
 
 .viewer-panel,

@@ -12,3 +12,4 @@ analysis/evaluation_report/
 .tmp/
 .pytest_cache/
 .mypy_cache/
+static/cache/

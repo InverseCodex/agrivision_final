@@ -81,7 +81,8 @@ const recSegIssue = document.getElementById("rec-seg-issue");
 const recSegReco = document.getElementById("rec-seg-reco");
 
 const initialPersonalizationEl = document.getElementById("initial-personalization");
-const savedTheme = localStorage.getItem("site_theme") || "default";
+const forcedTheme = document.body.dataset.forceTheme || "";
+const savedTheme = forcedTheme || localStorage.getItem("site_theme") || "default";
 const motionEnabled = localStorage.getItem("site_motion_enabled");
 if (["default", "neon", "minimalist"].includes(savedTheme)) {
     document.body.setAttribute("data-theme", savedTheme);
@@ -91,6 +92,7 @@ if (motionEnabled === "false") {
 }
 
 const resultId =
+    document.body.dataset.resultId ||
     recommendationList?.dataset.resultId ||
     window.location.pathname.split("/").filter(Boolean).pop() ||
     "unknown";
@@ -108,6 +110,36 @@ let currentSegmentVisualMode = "heatzone";
 let focusModeEnabled = false;
 let focusModalOpen = false;
 let focusModalCloseTimer = null;
+
+function isEmbeddedResultView() {
+    return document.body.classList.contains("embedded-result-body");
+}
+
+function notifyParentAdvancedMode(open) {
+    if (!isEmbeddedResultView() || window.parent === window) return;
+    window.parent.postMessage(
+        {
+            type: "agrivision:advanced-mode",
+            open: Boolean(open),
+            resultId,
+        },
+        window.location.origin,
+    );
+}
+
+function requestEmbeddedResultRefresh() {
+    if (isEmbeddedResultView() && window.parent !== window) {
+        window.parent.postMessage(
+            {
+                type: "agrivision:refresh-upload-result",
+                resultId,
+            },
+            window.location.origin,
+        );
+        return;
+    }
+    window.location.reload();
+}
 
 function isCoarsePointer() {
     return window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 780;
@@ -130,6 +162,14 @@ const SEGMENT_THRESHOLDS = {
     relative_biomass_score: 45,
     stand_uniformity_score: 55,
 };
+
+const SEGMENT_STATUS_BANDS = [
+    { minRatio: 1.2, label: "Healthy", severity: "very-high" },
+    { minRatio: 1.0, label: "Likely Healthy", severity: "high" },
+    { minRatio: 0.85, label: "Likely Stressed", severity: "normal" },
+    { minRatio: 0.7, label: "Stressed", severity: "low" },
+    { minRatio: 0, label: "Need Attention", severity: "very-low" },
+];
 
 try {
     const parsed = JSON.parse(initialPersonalizationEl?.textContent || "{}");
@@ -174,12 +214,9 @@ function classifySegmentMetric(segment, key) {
     if (Number.isNaN(value) || Number.isNaN(threshold)) {
         return "N/A";
     }
-
-    if (value <= threshold * 0.75) return "Very Low";
-    if (value <= threshold * 0.95) return "Low";
-    if (value <= threshold * 1.1) return "Normal";
-    if (value <= threshold * 1.25) return "High";
-    return "Very High";
+    const ratio = value / Math.max(threshold, 1);
+    const band = SEGMENT_STATUS_BANDS.find((item) => ratio >= item.minRatio);
+    return band?.label || "Need Attention";
 }
 
 function getMetricSeverity(segment, key) {
@@ -191,11 +228,9 @@ function getMetricSeverity(segment, key) {
     if (Number.isNaN(value) || Number.isNaN(threshold)) {
         return "na";
     }
-    if (value <= threshold * 0.75) return "very-low";
-    if (value <= threshold * 0.95) return "low";
-    if (value <= threshold * 1.1) return "normal";
-    if (value <= threshold * 1.25) return "high";
-    return "very-high";
+    const ratio = value / Math.max(threshold, 1);
+    const band = SEGMENT_STATUS_BANDS.find((item) => ratio >= item.minRatio);
+    return band?.severity || "very-low";
 }
 
 function getAdaptiveSegmentRecommendation(segment) {
@@ -374,6 +409,7 @@ function setSegmentVisualMode(mode) {
     if (focusModalOpen) {
         renderFocusSegmentPreview(getActiveSegment());
     }
+    normalizeSegmentPreviewFrame();
 }
 
 function setFocusMode(enabled) {
@@ -395,6 +431,7 @@ function openFocusModal() {
     segmentFocusModal.hidden = false;
     segmentFocusModal.setAttribute("aria-hidden", "false");
     document.body.classList.add("focus-modal-open");
+    notifyParentAdvancedMode(true);
 }
 
 function closeFocusModal() {
@@ -403,6 +440,7 @@ function closeFocusModal() {
     segmentFocusModal.classList.add("is-closing");
     segmentFocusModal.setAttribute("aria-hidden", "true");
     document.body.classList.remove("focus-modal-open");
+    notifyParentAdvancedMode(false);
     if (focusModalCloseTimer) {
         clearTimeout(focusModalCloseTimer);
     }
@@ -412,6 +450,79 @@ function closeFocusModal() {
         segmentFocusModal.classList.remove("is-closing");
         focusModalCloseTimer = null;
     }, 190);
+}
+
+function fitFrameToViewport(frameEl, imgEl, options = {}) {
+    if (!isEmbeddedResultView() || !frameEl || !imgEl) return;
+    const naturalWidth = Number(imgEl.naturalWidth || 0);
+    const naturalHeight = Number(imgEl.naturalHeight || 0);
+    if (!naturalWidth || !naturalHeight) return;
+
+    const minHeight = Number(options.minHeight || 260);
+    const viewportOffset = Number(options.viewportOffset || 240);
+    const parentWidth = Math.max(
+        1,
+        Math.floor(frameEl.parentElement?.clientWidth || frameEl.clientWidth || naturalWidth),
+    );
+    const maxHeight = Math.max(minHeight, window.innerHeight - viewportOffset);
+
+    let width = parentWidth;
+    let height = width * (naturalHeight / naturalWidth);
+
+    if (height > maxHeight) {
+        height = maxHeight;
+        width = height * (naturalWidth / naturalHeight);
+    }
+
+    frameEl.style.width = `${Math.round(Math.min(width, parentWidth))}px`;
+    frameEl.style.height = `${Math.round(height)}px`;
+    frameEl.style.maxWidth = "100%";
+    frameEl.style.marginInline = "auto";
+
+    imgEl.style.width = "100%";
+    imgEl.style.height = "100%";
+    imgEl.style.objectFit = "contain";
+}
+
+function getContainedMediaRect(frameEl, mediaEl) {
+    if (!frameEl || !mediaEl) return null;
+    const frameWidth = Number(frameEl.clientWidth || 0);
+    const frameHeight = Number(frameEl.clientHeight || 0);
+    const naturalWidth = Number(mediaEl.naturalWidth || 0);
+    const naturalHeight = Number(mediaEl.naturalHeight || 0);
+    if (!frameWidth || !frameHeight || !naturalWidth || !naturalHeight) {
+        return null;
+    }
+
+    const frameRatio = frameWidth / frameHeight;
+    const mediaRatio = naturalWidth / naturalHeight;
+
+    let width = frameWidth;
+    let height = frameHeight;
+    let left = 0;
+    let top = 0;
+
+    if (mediaRatio > frameRatio) {
+        width = frameWidth;
+        height = width / mediaRatio;
+        top = (frameHeight - height) / 2;
+    } else {
+        height = frameHeight;
+        width = height * mediaRatio;
+        left = (frameWidth - width) / 2;
+    }
+
+    return { left, top, width, height };
+}
+
+function syncOverlayToContainedMedia(overlayEl, frameEl, mediaEl) {
+    if (!overlayEl || !frameEl || !mediaEl) return;
+    const rect = getContainedMediaRect(frameEl, mediaEl);
+    if (!rect) return;
+    overlayEl.style.left = `${rect.left}px`;
+    overlayEl.style.top = `${rect.top}px`;
+    overlayEl.style.width = `${rect.width}px`;
+    overlayEl.style.height = `${rect.height}px`;
 }
 
 function renderFocusModeDetails(segment) {
@@ -507,10 +618,58 @@ function drawCropOverlay() {
 
 function resizeCropCanvas() {
     if (!cropOverlayCanvas || !cropDrawFrame) return;
-    const rect = cropDrawFrame.getBoundingClientRect();
+    if (cropSourceImage && cropSourceImage.complete) {
+        fitFrameToViewport(cropDrawFrame, cropSourceImage, {
+            minHeight: 280,
+            viewportOffset: 230,
+        });
+    }
+    syncOverlayToContainedMedia(cropOverlayCanvas, cropDrawFrame, cropSourceImage);
+    const rect = cropOverlayCanvas.getBoundingClientRect();
     cropOverlayCanvas.width = Math.max(1, Math.floor(rect.width));
     cropOverlayCanvas.height = Math.max(1, Math.floor(rect.height));
     drawCropOverlay();
+}
+
+function normalizeSegmentPreviewFrame() {
+    if (!segmentVisualFrame) return;
+    const candidate =
+        (croppedHeatzonePreview && croppedHeatzonePreview.complete && croppedHeatzonePreview.naturalWidth > 0 && croppedHeatzonePreview.src
+            ? croppedHeatzonePreview
+            : null) ||
+        (croppedOriginalPreview && croppedOriginalPreview.complete && croppedOriginalPreview.naturalWidth > 0 && croppedOriginalPreview.src
+            ? croppedOriginalPreview
+            : null);
+    if (!candidate) return;
+    fitFrameToViewport(segmentVisualFrame, candidate, {
+        minHeight: 260,
+        viewportOffset: 320,
+    });
+    syncSegmentVisualGridToImage();
+}
+
+function getActiveSegmentPreviewImage() {
+    if (currentSegmentVisualMode === "original") {
+        if (croppedOriginalPreview?.src && croppedOriginalPreview.naturalWidth > 0) return croppedOriginalPreview;
+        if (croppedHeatzonePreview?.src && croppedHeatzonePreview.naturalWidth > 0) return croppedHeatzonePreview;
+        return null;
+    }
+    if (croppedHeatzonePreview?.src && croppedHeatzonePreview.naturalWidth > 0) return croppedHeatzonePreview;
+    if (croppedOriginalPreview?.src && croppedOriginalPreview.naturalWidth > 0) return croppedOriginalPreview;
+    return null;
+}
+
+function syncSegmentVisualGridToImage() {
+    if (!segmentVisualGrid || !segmentVisualFrame) return;
+    const imageEl = getActiveSegmentPreviewImage();
+    if (!imageEl) {
+        segmentVisualGrid.style.left = "";
+        segmentVisualGrid.style.top = "";
+        segmentVisualGrid.style.width = "";
+        segmentVisualGrid.style.height = "";
+        return;
+    }
+    syncOverlayToContainedMedia(segmentVisualGrid, segmentVisualFrame, imageEl);
 }
 
 function pointerToNormalizedPoint(event) {
@@ -614,6 +773,7 @@ function renderSegmentButtons(segments, grid) {
             : Array.from({ length: segmentRows }, () => 1);
         segmentVisualGrid.style.gridTemplateColumns = colWeights.map((weight) => `minmax(0, ${Math.max(1, Number(weight) || 1)}fr)`).join(" ");
         segmentVisualGrid.style.gridTemplateRows = rowWeights.map((weight) => `minmax(0, ${Math.max(1, Number(weight) || 1)}fr)`).join(" ");
+        syncSegmentVisualGridToImage();
     }
 
     const segmentMap = new Map(segments.map((segment) => [segment.segment_id, segment]));
@@ -734,6 +894,7 @@ function renderSegmentButtons(segments, grid) {
     } else {
         setSegmentMetricValues(null);
     }
+    syncSegmentVisualGridToImage();
 }
 
 async function runCroppedAnalysis() {
@@ -771,6 +932,8 @@ async function runCroppedAnalysis() {
         if (croppedHeatzonePreview) {
             croppedHeatzonePreview.src = payload.cropped_heatzone_data_url || "";
         }
+        window.setTimeout(normalizeSegmentPreviewFrame, 50);
+        window.setTimeout(normalizeSegmentPreviewFrame, 180);
 
         latestSegments = Array.isArray(payload.segments) ? payload.segments : [];
         renderSegmentButtons(latestSegments, payload.grid || { rows: 4, cols: 4 });
@@ -947,7 +1110,10 @@ if (cropSourceImage && cropOverlayCanvas) {
         });
     }
 
-    window.addEventListener("resize", resizeCropCanvas);
+    window.addEventListener("resize", () => {
+        resizeCropCanvas();
+        normalizeSegmentPreviewFrame();
+    });
 
     cropOverlayCanvas.addEventListener("pointerdown", (event) => {
         const point = pointerToNormalizedPoint(event);
@@ -1012,6 +1178,12 @@ if (cropSourceImage && cropOverlayCanvas) {
     });
 
     showCropToolButton?.addEventListener("click", () => {
+        if (isEmbeddedResultView()) {
+            closeFocusModal();
+            setCropStatus("Refreshing the current upload...");
+            requestEmbeddedResultRefresh();
+            return;
+        }
         setCropViewMode("edit");
         setCropStatus("Crop editor shown. Adjust points, then analyze again.");
     });
@@ -1026,6 +1198,10 @@ if (cropSourceImage && cropOverlayCanvas) {
         applyCropPreset(preset);
     });
 }
+
+[croppedOriginalPreview, croppedHeatzonePreview].forEach((img) => {
+    img?.addEventListener("load", normalizeSegmentPreviewFrame);
+});
 
 applyRecommendationChecksFromState();
 setSegmentMetricValues(null);
