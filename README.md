@@ -1,11 +1,11 @@
 ---
-title: Agrivision Website
-emoji: 🚀
-colorFrom: purple
-colorTo: pink
+title: AgriVision Website
+emoji: 🌾
+colorFrom: blue
+colorTo: green
 sdk: docker
-pinned: false
-short_description: Agrivision Website
+app_port: 7860
+fullWidth: true
 ---
 
-Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+AgriVision deployment on Hugging Face Spaces.
