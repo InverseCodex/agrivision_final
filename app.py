@@ -6,6 +6,7 @@ import io
 import base64
 import textwrap
 import shutil
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from dotenv import load_dotenv
 from supabase import Client, create_client
 import numpy as np
 from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -30,9 +32,51 @@ from analysis import (
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 SERVER_MODELS_DIR = BASE_DIR / "models"
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").strip().upper())
+LOGGER = logging.getLogger("agrivision")
+
+
+def env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def running_on_huggingface_space() -> bool:
+    return any(
+        os.getenv(name)
+        for name in (
+            "SPACE_ID",
+            "SPACE_HOST",
+            "SPACE_REPO_NAME",
+            "HF_SPACE_ID",
+        )
+    )
+
+
+def normalize_samesite(value: str | None, default: str) -> str:
+    raw = (value or "").strip().lower()
+    if raw == "strict":
+        return "Strict"
+    if raw == "none":
+        return "None"
+    if raw == "lax":
+        return "Lax"
+    return default
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "replace-this-in-production")
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = normalize_samesite(
+    os.getenv("SESSION_COOKIE_SAMESITE"),
+    "None" if running_on_huggingface_space() else "Lax",
+)
+app.config["SESSION_COOKIE_SECURE"] = env_flag("SESSION_COOKIE_SECURE", running_on_huggingface_space())
+app.config["SESSION_COOKIE_PARTITIONED"] = env_flag("SESSION_COOKIE_PARTITIONED", running_on_huggingface_space())
+if app.config["SESSION_COOKIE_SAMESITE"] == "None":
+    app.config["SESSION_COOKIE_SECURE"] = True
 app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024  # 12 MB upload limit for stability on small instances.
 app.config["HEALTH_MODEL_PATH"] = os.getenv(
     "AGRIVISION_HEALTH_MODEL_PATH",
@@ -91,6 +135,45 @@ CROP_SEGMENT_EDGE_MIN_OCCUPIED_SPAN_RATIO = 0.55
 CROP_SEGMENT_MIN_VALID_PIXEL_RATIO = 0.35
 ORTHO_MAX_EDGE_PX = 1400
 ORTHO_MIN_EDGE_PX = 220
+
+
+def describe_supabase_auth_error(exc: Exception | None = None) -> str:
+    guidance = (
+        f"Supabase sign-in is unavailable. Confirm the '{SUPABASE_TABLE}' table exists and "
+        "set SUPABASE_URL plus SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY in your environment."
+    )
+    detail = str(exc).strip() if exc else ""
+    if not detail:
+        return guidance
+    return f"{guidance} Details: {detail}"
+
+
+def log_runtime_configuration() -> None:
+    if running_on_huggingface_space():
+        LOGGER.info(
+            "Detected Hugging Face Space host=%s secure_cookie=%s samesite=%s partitioned=%s",
+            os.getenv("SPACE_HOST", ""),
+            app.config["SESSION_COOKIE_SECURE"],
+            app.config["SESSION_COOKIE_SAMESITE"],
+            app.config["SESSION_COOKIE_PARTITIONED"],
+        )
+    if app.config["SECRET_KEY"] == "replace-this-in-production":
+        LOGGER.warning("FLASK_SECRET_KEY is using the default value; sessions may reset across restarts.")
+    if supabase is None:
+        LOGGER.warning(
+            "Supabase client not initialized. In Docker Spaces, add SUPABASE_URL plus "
+            "SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY in Space Secrets."
+        )
+        return
+    LOGGER.info(
+        "Supabase client initialized with tables users=%s images=%s results=%s",
+        SUPABASE_TABLE,
+        SUPABASE_IMAGES_TABLE,
+        SUPABASE_RESULTS_TABLE,
+    )
+
+
+log_runtime_configuration()
 
 
 def current_user():
@@ -2902,18 +2985,30 @@ def login():
     if supabase is None:
         return render_template(
             "login.html",
-            error="Missing Supabase key. Set SUPABASE_KEY (or SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY) in .env.",
+            error=describe_supabase_auth_error(),
             success="",
             canonical_url=f"{site_url}/login",
         )
 
-    query = (
-        supabase.table(SUPABASE_TABLE)
-        .select("user_id, username, password, privilege")
-        .eq("username", username)
-        .limit(1)
-        .execute()
-    )
+    try:
+        query = (
+            supabase.table(SUPABASE_TABLE)
+            .select("user_id, username, password, privilege")
+            .eq("username", username)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        LOGGER.exception("Supabase login query failed for username=%s", username)
+        return (
+            render_template(
+                "login.html",
+                error=describe_supabase_auth_error(exc),
+                success="",
+                canonical_url=f"{site_url}/login",
+            ),
+            500,
+        )
 
     users = query.data or []
     if not users:
@@ -2946,7 +3041,7 @@ def register():
     if supabase is None:
         return render_template(
             "register.html",
-            error="Missing Supabase key. Set SUPABASE_KEY (or SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY) in .env.",
+            error=describe_supabase_auth_error(),
             canonical_url=f"{site_url}/register",
         )
 
@@ -2958,13 +3053,24 @@ def register():
     if username.lower() == SECRET_ADMIN_USERNAME:
         return render_template("register.html", error="That username is reserved.", canonical_url=f"{site_url}/register")
 
-    existing = (
-        supabase.table(SUPABASE_TABLE)
-        .select("user_id")
-        .eq("username", username)
-        .limit(1)
-        .execute()
-    )
+    try:
+        existing = (
+            supabase.table(SUPABASE_TABLE)
+            .select("user_id")
+            .eq("username", username)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        LOGGER.exception("Supabase register lookup failed for username=%s", username)
+        return (
+            render_template(
+                "register.html",
+                error=describe_supabase_auth_error(exc),
+                canonical_url=f"{site_url}/register",
+            ),
+            500,
+        )
 
     if existing.data:
         return render_template("register.html", error="Username already exists.", canonical_url=f"{site_url}/register")
@@ -2976,7 +3082,18 @@ def register():
         "privilege": "USER",
     }
 
-    supabase.table(SUPABASE_TABLE).insert(payload).execute()
+    try:
+        supabase.table(SUPABASE_TABLE).insert(payload).execute()
+    except Exception as exc:
+        LOGGER.exception("Supabase register insert failed for username=%s", username)
+        return (
+            render_template(
+                "register.html",
+                error=describe_supabase_auth_error(exc),
+                canonical_url=f"{site_url}/register",
+            ),
+            500,
+        )
     return redirect(url_for("login_page", success="Account created. You can now sign in."))
 
 

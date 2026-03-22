@@ -54,11 +54,13 @@ AgriVision is a Flask-based web application for thesis demonstration and evaluat
 
 Create a `.env` file in the project root based on `.env.example`.
 
+For Hugging Face Docker Spaces, `.env` is not copied into the container because it is excluded by `.dockerignore`. Add the same values in your Space Settings as Variables/Secrets instead.
+
 Required variables:
 
 - `FLASK_SECRET_KEY`
 - `SUPABASE_URL`
-- `SUPABASE_KEY` or `SUPABASE_ANON_KEY` or `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_KEY` or `SUPABASE_ANON_KEY`
 - `SUPABASE_TABLE`
 - `SUPABASE_IMAGES_TABLE`
 - `SUPABASE_RESULTS_TABLE`
@@ -68,6 +70,12 @@ Required variables:
 - `AGRIVISION_HEALTH_MODEL_PATH`
 - `AGRIVISION_STAGE_MODEL_PATH`
 - `AGRIVISION_MODEL_DEVICE` (optional)
+
+Recommended for Spaces:
+
+- Use `SUPABASE_SERVICE_ROLE_KEY` as a Space Secret for this server-side Flask app.
+- Run `supabase/001_bootstrap_schema.sql` in the Supabase SQL Editor before first login so `user_info`, `uploaded_images`, and `analysis_results` exist with the expected columns.
+- If you are testing login from the Hugging Face wrapper page and your browser blocks embedded cookies, also test the direct `https://<your-space-subdomain>.hf.space` URL.
 
 ## Local run
 
@@ -79,6 +87,12 @@ python app.py
 ```
 
 Then open `http://127.0.0.1:5000`.
+
+## Hugging Face deployment notes
+
+- The app auto-detects Hugging Face Spaces and switches Flask session cookies to `SameSite=None` with secure cookies so iframe-based logins have the best chance of working.
+- If you override cookie settings manually, keep `SESSION_COOKIE_SECURE=true` whenever `SESSION_COOKIE_SAMESITE=None`.
+- Runtime startup logs now warn when Supabase credentials are missing or when the default Flask secret is still in use.
 
 Inference smoke check:
 
