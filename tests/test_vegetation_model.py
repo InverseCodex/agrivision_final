@@ -8,7 +8,6 @@ from analysis.vegetation_damage_model import (
     predict_vegetation_damage_from_rgb,
 )
 from app import (
-    _build_effective_crop_mask,
     _masked_rgb_metrics,
     _trained_damage_model_result,
     _weighted_health_score,
@@ -121,20 +120,11 @@ class VegetationDamageModelTests(unittest.TestCase):
 
         self.assertGreater(score_high, score_low)
 
-    def test_textured_senescent_crop_mask_is_not_removed_as_deadspace(self) -> None:
-        image = self._make_textured_senescent_field()
-        full_mask = Image.new("L", image.size, 255)
-
-        effective_mask = _build_effective_crop_mask(image, full_mask)
-        coverage = np.asarray(effective_mask, dtype=np.uint8).mean() / 255.0
-
-        self.assertGreater(coverage, 0.85)
-
     def test_masked_metrics_keep_textured_senescent_pixels_when_mask_is_explicit(self) -> None:
         image = self._make_textured_senescent_field()
         full_mask = Image.new("L", image.size, 255)
 
-        metrics = _masked_rgb_metrics(image, full_mask, include_soft_deadspace=False)
+        metrics = _masked_rgb_metrics(image, full_mask)
 
         self.assertGreater(metrics["valid_count"], 0)
         self.assertGreater(metrics["valid_pixel_ratio"], 0.95)

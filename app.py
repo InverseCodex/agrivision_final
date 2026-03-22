@@ -147,7 +147,6 @@ CROP_SEGMENT_MIN_FILLED_AREA_RATIO = 0.40
 CROP_SEGMENT_EDGE_MIN_FILLED_AREA_RATIO = 0.75
 CROP_SEGMENT_EDGE_MIN_OCCUPIED_SPAN_RATIO = 0.55
 CROP_SEGMENT_MIN_VALID_PIXEL_RATIO = 0.35
-SOFT_DEADSPACE_MAX_TEXTURE = 12.0
 ORTHO_MAX_EDGE_PX = 1400
 ORTHO_MIN_EDGE_PX = 220
 
@@ -869,11 +868,7 @@ def run_rgb_analysis(original_path: Path, user_id: str, image_id: str) -> dict[s
     }
 
 
-def _masked_rgb_metrics(
-    rgb_image: Any,
-    mask_image: Any | None = None,
-    include_soft_deadspace: bool = True,
-) -> dict[str, float]:
+def _masked_rgb_metrics(rgb_image: Any, mask_image: Any | None = None) -> dict[str, float]:
     pixels = list(rgb_image.getdata())
     if mask_image is not None:
         mask_pixels = list(mask_image.convert("L").getdata())
@@ -896,8 +891,6 @@ def _masked_rgb_metrics(
         if m <= 0:
             continue
         masked_count += 1
-        if _pixel_is_non_crop_deadspace(r, g, b, "DJI Mini 4 Pro", include_soft=include_soft_deadspace):
-            continue
         valid_count += 1
         sum_r += r
         sum_g += g
@@ -1291,141 +1284,6 @@ def _pixel_is_dry_canopy(r: int, g: int, b: int) -> bool:
     return r > b * 1.08 and g > b * 1.02 and abs(r - g) <= 48
 
 
-def _pixel_is_hard_deadspace(r: int, g: int, b: int) -> bool:
-    max_c = max(r, g, b)
-    min_c = min(r, g, b)
-    chroma = max_c - min_c
-    near_white = max_c >= 245 and chroma <= 8
-    near_black = max_c <= 12 and chroma <= 8
-    return near_white or near_black
-
-
-def _pixel_is_non_crop_deadspace(
-    r: int,
-    g: int,
-    b: int,
-    camera_model: str = "DJI Mini 4 Pro",
-    include_soft: bool = True,
-) -> bool:
-    if _pixel_is_hard_deadspace(r, g, b):
-        return True
-    if not include_soft:
-        return False
-
-    max_c = max(r, g, b)
-    min_c = min(r, g, b)
-    chroma = max_c - min_c
-    score = _pixel_stress_score(r, g, b)
-    green_dominant = _pixel_is_green_dominant(r, g, b, camera_model)
-
-    muted_surface = chroma <= 30 and 95 <= max_c <= 225 and score < 0.08 and not green_dominant
-    tan_padding = chroma <= 44 and max_c >= 125 and abs(r - g) <= 28 and b <= g + 26 and score < 0.10
-    dusty_pink = chroma <= 42 and max_c >= 120 and abs(r - b) <= 22 and g <= r + 10 and score < 0.06
-    dull_brown = (
-        chroma <= 52
-        and max_c >= 110
-        and r >= g >= b
-        and (r - g) <= 34
-        and (g - b) <= 26
-        and score < 0.10
-        and not green_dominant
-    )
-    return muted_surface or tan_padding or dusty_pink or dull_brown
-
-
-def _build_effective_crop_mask(rgb_image: Any, mask_image: Any | None = None) -> Any:
-    from collections import deque
-    from PIL import Image
-
-    rgb = np.asarray(rgb_image.convert("RGB"), dtype=np.int16)
-    if mask_image is not None:
-        base_mask = np.asarray(mask_image.convert("L"), dtype=np.uint8) > 0
-    else:
-        base_mask = np.ones(rgb.shape[:2], dtype=bool)
-
-    if not np.any(base_mask):
-        return Image.new("L", (rgb.shape[1], rgb.shape[0]), 0)
-
-    r = rgb[..., 0]
-    g = rgb[..., 1]
-    b = rgb[..., 2]
-    max_c = np.maximum.reduce([r, g, b])
-    min_c = np.minimum.reduce([r, g, b])
-    chroma = max_c - min_c
-    score = (g - r) / (r + g + b + 1e-6)
-    green_dominant = (g > r * 1.02) & (g > b * 1.02)
-
-    gray = (0.299 * r + 0.587 * g + 0.114 * b).astype(np.float32)
-    texture = np.zeros_like(gray, dtype=np.float32)
-    diff_x = np.abs(gray[:, 1:] - gray[:, :-1])
-    diff_y = np.abs(gray[1:, :] - gray[:-1, :])
-    texture[:, 1:] += diff_x
-    texture[:, :-1] += diff_x
-    texture[1:, :] += diff_y
-    texture[:-1, :] += diff_y
-    texture /= 4.0
-
-    near_white = (max_c >= 245) & (chroma <= 8)
-    near_black = (max_c <= 12) & (chroma <= 8)
-    muted_surface = (chroma <= 30) & (max_c >= 95) & (max_c <= 225) & (score < 0.08) & (~green_dominant)
-    tan_padding = (chroma <= 44) & (max_c >= 125) & (np.abs(r - g) <= 28) & (b <= g + 26) & (score < 0.10)
-    dusty_pink = (chroma <= 42) & (max_c >= 120) & (np.abs(r - b) <= 22) & (g <= r + 10) & (score < 0.06)
-    dull_brown = (
-        (chroma <= 52)
-        & (max_c >= 110)
-        & (r >= g)
-        & (g >= b)
-        & ((r - g) <= 34)
-        & ((g - b) <= 26)
-        & (score < 0.10)
-        & (~green_dominant)
-    )
-    flat_muted_deadspace = (
-        (chroma <= 58)
-        & (max_c >= 90)
-        & (max_c <= 235)
-        & (texture <= 9.0)
-        & (~green_dominant)
-    )
-
-    hard_non_crop = near_white | near_black
-    low_texture = texture <= SOFT_DEADSPACE_MAX_TEXTURE
-    soft_deadspace = (muted_surface | tan_padding | dusty_pink | dull_brown) & low_texture
-    candidate_deadspace = soft_deadspace | flat_muted_deadspace
-    border_deadspace = np.zeros_like(base_mask, dtype=bool)
-    height, width = base_mask.shape
-    queue: deque[tuple[int, int]] = deque()
-
-    def enqueue_if_candidate(y: int, x: int) -> None:
-        if not base_mask[y, x] or not candidate_deadspace[y, x] or border_deadspace[y, x]:
-            return
-        border_deadspace[y, x] = True
-        queue.append((y, x))
-
-    for x in range(width):
-        enqueue_if_candidate(0, x)
-        enqueue_if_candidate(height - 1, x)
-    for y in range(height):
-        enqueue_if_candidate(y, 0)
-        enqueue_if_candidate(y, width - 1)
-
-    while queue:
-        y, x = queue.popleft()
-        if y > 0:
-            enqueue_if_candidate(y - 1, x)
-        if y + 1 < height:
-            enqueue_if_candidate(y + 1, x)
-        if x > 0:
-            enqueue_if_candidate(y, x - 1)
-        if x + 1 < width:
-            enqueue_if_candidate(y, x + 1)
-
-    non_crop = hard_non_crop | border_deadspace
-    effective_mask = base_mask & (~non_crop)
-
-    return Image.fromarray((effective_mask.astype(np.uint8) * 255), mode="L")
-
-
 def _management_zone_recommendation(indices: dict[str, float], stress_ratio: float) -> dict[str, str]:
     tgi = float(indices.get("tgi", 0.0))
     vari = float(indices.get("vari", 0.0))
@@ -1453,11 +1311,7 @@ def _segment_possible_issue(segment: dict[str, Any]) -> str:
     return _ml_segment_possible_issue(segment)
 
 
-def _build_masked_heatzone_image(
-    rgb_image: Any,
-    mask_image: Any | None = None,
-    include_soft_deadspace: bool = True,
-) -> Any:
+def _build_masked_heatzone_image(rgb_image: Any, mask_image: Any | None = None) -> Any:
     from PIL import Image
 
     rgb = rgb_image.convert("RGB")
@@ -1468,9 +1322,6 @@ def _build_masked_heatzone_image(
     rendered: list[tuple[int, int, int, int]] = []
     for (r, g, b), m in zip(pixels, mask_pixels):
         if m <= 0:
-            rendered.append((0, 0, 0, 0))
-            continue
-        if _pixel_is_non_crop_deadspace(r, g, b, "DJI Mini 4 Pro", include_soft=include_soft_deadspace):
             rendered.append((0, 0, 0, 0))
             continue
 
@@ -1709,8 +1560,6 @@ def analyze_freeform_cropped_segments(
         analysis_mask = Image.new("L", (out_w, out_h), 255)
         preprocessing_stage = "orthorectified-selection"
 
-    analysis_mask = _build_effective_crop_mask(analysis_rgb, analysis_mask)
-
     bbox = analysis_mask.getbbox()
     if not bbox:
         raise RuntimeError("Invalid crop selection. Please draw a larger area.")
@@ -1723,7 +1572,7 @@ def analyze_freeform_cropped_segments(
     masked_original = analysis_rgb.convert("RGBA")
     masked_original.putalpha(analysis_mask)
 
-    metrics = _masked_rgb_metrics(analysis_rgb, analysis_mask, include_soft_deadspace=False)
+    metrics = _masked_rgb_metrics(analysis_rgb, analysis_mask)
     trained_prediction = predict_vegetation_damage_from_rgb(
         np.asarray(analysis_rgb, dtype=np.uint8),
         mask=np.asarray(analysis_mask.convert("L"), dtype=np.uint8),
@@ -1759,7 +1608,7 @@ def analyze_freeform_cropped_segments(
     }
     zone = _management_zone_recommendation(extended_indices, stress_ratio=metrics["stress_ratio"])
 
-    heatzone = _build_masked_heatzone_image(analysis_rgb, analysis_mask, include_soft_deadspace=False)
+    heatzone = _build_masked_heatzone_image(analysis_rgb, analysis_mask)
 
     requested_cells = max(4, min(144, int(grid_rows) * int(grid_cols)))
     adaptive_rows, adaptive_cols = _derive_adaptive_grid_dimensions(requested_cells, bbox_w, bbox_h)
@@ -1785,7 +1634,7 @@ def analyze_freeform_cropped_segments(
                 region_mask_np = np.asarray(region_mask.convert("L"), dtype=np.uint8) > 0
                 occupied_col_ratio = float(np.mean(region_mask_np.any(axis=0))) if region_mask_np.size else 0.0
                 occupied_row_ratio = float(np.mean(region_mask_np.any(axis=1))) if region_mask_np.size else 0.0
-                region_metrics = _masked_rgb_metrics(region_rgb, region_mask, include_soft_deadspace=False)
+                region_metrics = _masked_rgb_metrics(region_rgb, region_mask)
                 usable_area_ratio = max(
                     0.0,
                     min(
