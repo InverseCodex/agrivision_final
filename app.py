@@ -147,6 +147,7 @@ CROP_SEGMENT_MIN_FILLED_AREA_RATIO = 0.40
 CROP_SEGMENT_EDGE_MIN_FILLED_AREA_RATIO = 0.75
 CROP_SEGMENT_EDGE_MIN_OCCUPIED_SPAN_RATIO = 0.55
 CROP_SEGMENT_MIN_VALID_PIXEL_RATIO = 0.35
+SOFT_DEADSPACE_MAX_TEXTURE = 12.0
 ORTHO_MAX_EDGE_PX = 1400
 ORTHO_MIN_EDGE_PX = 220
 
@@ -868,7 +869,11 @@ def run_rgb_analysis(original_path: Path, user_id: str, image_id: str) -> dict[s
     }
 
 
-def _masked_rgb_metrics(rgb_image: Any, mask_image: Any | None = None) -> dict[str, float]:
+def _masked_rgb_metrics(
+    rgb_image: Any,
+    mask_image: Any | None = None,
+    include_soft_deadspace: bool = True,
+) -> dict[str, float]:
     pixels = list(rgb_image.getdata())
     if mask_image is not None:
         mask_pixels = list(mask_image.convert("L").getdata())
@@ -891,7 +896,7 @@ def _masked_rgb_metrics(rgb_image: Any, mask_image: Any | None = None) -> dict[s
         if m <= 0:
             continue
         masked_count += 1
-        if _pixel_is_non_crop_deadspace(r, g, b, "DJI Mini 4 Pro"):
+        if _pixel_is_non_crop_deadspace(r, g, b, "DJI Mini 4 Pro", include_soft=include_soft_deadspace):
             continue
         valid_count += 1
         sum_r += r
@@ -1286,15 +1291,30 @@ def _pixel_is_dry_canopy(r: int, g: int, b: int) -> bool:
     return r > b * 1.08 and g > b * 1.02 and abs(r - g) <= 48
 
 
-def _pixel_is_non_crop_deadspace(r: int, g: int, b: int, camera_model: str = "DJI Mini 4 Pro") -> bool:
+def _pixel_is_hard_deadspace(r: int, g: int, b: int) -> bool:
     max_c = max(r, g, b)
     min_c = min(r, g, b)
     chroma = max_c - min_c
     near_white = max_c >= 245 and chroma <= 8
     near_black = max_c <= 12 and chroma <= 8
-    if near_white or near_black:
-        return True
+    return near_white or near_black
 
+
+def _pixel_is_non_crop_deadspace(
+    r: int,
+    g: int,
+    b: int,
+    camera_model: str = "DJI Mini 4 Pro",
+    include_soft: bool = True,
+) -> bool:
+    if _pixel_is_hard_deadspace(r, g, b):
+        return True
+    if not include_soft:
+        return False
+
+    max_c = max(r, g, b)
+    min_c = min(r, g, b)
+    chroma = max_c - min_c
     score = _pixel_stress_score(r, g, b)
     green_dominant = _pixel_is_green_dominant(r, g, b, camera_model)
 
@@ -1369,7 +1389,9 @@ def _build_effective_crop_mask(rgb_image: Any, mask_image: Any | None = None) ->
     )
 
     hard_non_crop = near_white | near_black
-    candidate_deadspace = muted_surface | tan_padding | dusty_pink | dull_brown | flat_muted_deadspace
+    low_texture = texture <= SOFT_DEADSPACE_MAX_TEXTURE
+    soft_deadspace = (muted_surface | tan_padding | dusty_pink | dull_brown) & low_texture
+    candidate_deadspace = soft_deadspace | flat_muted_deadspace
     border_deadspace = np.zeros_like(base_mask, dtype=bool)
     height, width = base_mask.shape
     queue: deque[tuple[int, int]] = deque()
@@ -1431,7 +1453,11 @@ def _segment_possible_issue(segment: dict[str, Any]) -> str:
     return _ml_segment_possible_issue(segment)
 
 
-def _build_masked_heatzone_image(rgb_image: Any, mask_image: Any | None = None) -> Any:
+def _build_masked_heatzone_image(
+    rgb_image: Any,
+    mask_image: Any | None = None,
+    include_soft_deadspace: bool = True,
+) -> Any:
     from PIL import Image
 
     rgb = rgb_image.convert("RGB")
@@ -1444,7 +1470,7 @@ def _build_masked_heatzone_image(rgb_image: Any, mask_image: Any | None = None) 
         if m <= 0:
             rendered.append((0, 0, 0, 0))
             continue
-        if _pixel_is_non_crop_deadspace(r, g, b, "DJI Mini 4 Pro"):
+        if _pixel_is_non_crop_deadspace(r, g, b, "DJI Mini 4 Pro", include_soft=include_soft_deadspace):
             rendered.append((0, 0, 0, 0))
             continue
 
@@ -1697,7 +1723,7 @@ def analyze_freeform_cropped_segments(
     masked_original = analysis_rgb.convert("RGBA")
     masked_original.putalpha(analysis_mask)
 
-    metrics = _masked_rgb_metrics(analysis_rgb, analysis_mask)
+    metrics = _masked_rgb_metrics(analysis_rgb, analysis_mask, include_soft_deadspace=False)
     trained_prediction = predict_vegetation_damage_from_rgb(
         np.asarray(analysis_rgb, dtype=np.uint8),
         mask=np.asarray(analysis_mask.convert("L"), dtype=np.uint8),
@@ -1733,7 +1759,7 @@ def analyze_freeform_cropped_segments(
     }
     zone = _management_zone_recommendation(extended_indices, stress_ratio=metrics["stress_ratio"])
 
-    heatzone = _build_masked_heatzone_image(analysis_rgb, analysis_mask)
+    heatzone = _build_masked_heatzone_image(analysis_rgb, analysis_mask, include_soft_deadspace=False)
 
     requested_cells = max(4, min(144, int(grid_rows) * int(grid_cols)))
     adaptive_rows, adaptive_cols = _derive_adaptive_grid_dimensions(requested_cells, bbox_w, bbox_h)
@@ -1759,7 +1785,7 @@ def analyze_freeform_cropped_segments(
                 region_mask_np = np.asarray(region_mask.convert("L"), dtype=np.uint8) > 0
                 occupied_col_ratio = float(np.mean(region_mask_np.any(axis=0))) if region_mask_np.size else 0.0
                 occupied_row_ratio = float(np.mean(region_mask_np.any(axis=1))) if region_mask_np.size else 0.0
-                region_metrics = _masked_rgb_metrics(region_rgb, region_mask)
+                region_metrics = _masked_rgb_metrics(region_rgb, region_mask, include_soft_deadspace=False)
                 usable_area_ratio = max(
                     0.0,
                     min(

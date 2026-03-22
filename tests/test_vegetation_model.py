@@ -1,15 +1,33 @@
 import unittest
 
 import numpy as np
+from PIL import Image
 
 from analysis.vegetation_damage_model import (
     predict_growth_stage_from_rgb,
     predict_vegetation_damage_from_rgb,
 )
-from app import _trained_damage_model_result, _weighted_health_score
+from app import (
+    _build_effective_crop_mask,
+    _masked_rgb_metrics,
+    _trained_damage_model_result,
+    _weighted_health_score,
+)
 
 
 class VegetationDamageModelTests(unittest.TestCase):
+    def _make_textured_senescent_field(self) -> Image.Image:
+        image = np.zeros((96, 96, 3), dtype=np.uint8)
+        for y in range(image.shape[0]):
+            for x in range(image.shape[1]):
+                if (x // 6) % 2 == 0:
+                    image[y, x] = (176, 186, 118)
+                else:
+                    image[y, x] = (128, 150, 74)
+                if (y // 12) % 2 == 1:
+                    image[y, x] = np.clip(image[y, x] - np.array((18, 10, 8)), 0, 255)
+        return Image.fromarray(image, mode="RGB")
+
     def test_green_image_predicts_healthy(self) -> None:
         image = np.zeros((160, 160, 3), dtype=np.uint8)
         image[..., 0] = 40
@@ -102,6 +120,24 @@ class VegetationDamageModelTests(unittest.TestCase):
         )
 
         self.assertGreater(score_high, score_low)
+
+    def test_textured_senescent_crop_mask_is_not_removed_as_deadspace(self) -> None:
+        image = self._make_textured_senescent_field()
+        full_mask = Image.new("L", image.size, 255)
+
+        effective_mask = _build_effective_crop_mask(image, full_mask)
+        coverage = np.asarray(effective_mask, dtype=np.uint8).mean() / 255.0
+
+        self.assertGreater(coverage, 0.85)
+
+    def test_masked_metrics_keep_textured_senescent_pixels_when_mask_is_explicit(self) -> None:
+        image = self._make_textured_senescent_field()
+        full_mask = Image.new("L", image.size, 255)
+
+        metrics = _masked_rgb_metrics(image, full_mask, include_soft_deadspace=False)
+
+        self.assertGreater(metrics["valid_count"], 0)
+        self.assertGreater(metrics["valid_pixel_ratio"], 0.95)
 
 
 if __name__ == "__main__":
