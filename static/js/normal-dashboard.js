@@ -166,7 +166,7 @@
         fileNameLabel.textContent = file.name;
         fileSizeLabel.textContent = formatFileSize(file.size);
         uploadSubmitButton.disabled = false;
-        setUploadStatus("Image ready. Upload when you are ready.");
+        setUploadStatus("Image ready. Analyze when you are ready.");
 
         const reader = new FileReader();
         reader.onload = (event) => {
@@ -296,7 +296,7 @@
         uploadStageTitle.textContent = "Image View";
         uploadStateChip.textContent = result.health_band_label || "Viewing result";
 
-        renderStatus(result);
+        renderStatus();
         renderRecommendations(result);
         loadEmbeddedResult(result.image_id || "");
 
@@ -553,7 +553,7 @@
             if (Array.isArray(data.status) && data.status.length) {
                 renderStatus({ status: data.status });
             } else {
-                renderStatus(currentResult);
+                renderStatus();
             }
             return;
         }

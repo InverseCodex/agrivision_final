@@ -1,16 +1,25 @@
+import base64
+import io
+import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from analysis.vegetation_damage_model import (
     predict_growth_stage_from_rgb,
     predict_vegetation_damage_from_rgb,
 )
 from app import (
+    _default_full_selection_points,
+    _extract_field_stage_model,
+    _is_full_frame_quad,
+    _merge_field_stage_into_model_result,
     _masked_rgb_metrics,
     _trained_damage_model_result,
     _weighted_health_score,
+    analyze_freeform_cropped_segments,
 )
 
 
@@ -128,6 +137,84 @@ class VegetationDamageModelTests(unittest.TestCase):
 
         self.assertGreater(metrics["valid_count"], 0)
         self.assertGreater(metrics["valid_pixel_ratio"], 0.95)
+
+    def test_field_stage_can_be_merged_without_overriding_segment_health_band(self) -> None:
+        analysis = {
+            "report": {
+                "model_result": {
+                    "growth_stage_label": "Tasseling",
+                    "growth_stage_probability": 0.91,
+                    "maturity_probability": 0.12,
+                    "growth_stage_feature_values": {"gli": 0.44, "vari": 0.31},
+                    "growth_stage_feature_names": ["gli", "vari"],
+                }
+            }
+        }
+
+        field_stage = _extract_field_stage_model(analysis)
+        merged = _merge_field_stage_into_model_result(
+            {
+                "health_band": "unhealthy_damaged",
+                "health_score": 41.2,
+                "confidence": 0.77,
+            },
+            field_stage,
+        )
+
+        self.assertEqual(field_stage["display_label"], "Tasseling")
+        self.assertEqual(merged["health_band"], "unhealthy_damaged")
+        self.assertEqual(merged["growth_stage_label"], "Tasseling")
+        self.assertAlmostEqual(merged["growth_stage_probability"], 0.91, places=4)
+        self.assertEqual(merged["growth_stage_feature_names"], ["gli", "vari"])
+
+    def test_default_full_selection_points_cover_entire_image(self) -> None:
+        self.assertEqual(
+            _default_full_selection_points(),
+            [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+        )
+
+    def test_full_frame_quad_detection_matches_image_corners(self) -> None:
+        self.assertTrue(_is_full_frame_quad([(0, 0), (159, 0), (159, 95), (0, 95)], 160, 96))
+        self.assertFalse(_is_full_frame_quad([(12, 6), (150, 6), (150, 90), (12, 90)], 160, 96))
+
+    def test_segment_analysis_preserves_selection_geometry_without_rectification(self) -> None:
+        width, height = 128, 96
+        image = np.zeros((height, width, 3), dtype=np.uint8)
+        image[..., 0] = 58
+        image[..., 1] = 146
+        image[..., 2] = 74
+        source_image = Image.fromarray(image, mode="RGB")
+        points = [(0.25, 0.05), (0.75, 0.1), (0.95, 0.95), (0.05, 0.9)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            image_path = Path(tmpdir) / "field.png"
+            source_image.save(image_path)
+
+            result = analyze_freeform_cropped_segments(
+                image_path,
+                "geometry-test",
+                points,
+                4,
+                4,
+                field_stage_model={},
+            )
+
+        mask = Image.new("L", (width, height), 0)
+        px_points = [
+            (
+                min(max(int(round(x_norm * (width - 1))), 0), width - 1),
+                min(max(int(round(y_norm * (height - 1))), 0), height - 1),
+            )
+            for x_norm, y_norm in points
+        ]
+        ImageDraw.Draw(mask).polygon(px_points, fill=255)
+        bbox = mask.getbbox()
+        self.assertIsNotNone(bbox)
+        expected_size = (bbox[2] - bbox[0], bbox[3] - bbox[1])
+
+        _, encoded = result["cropped_original_data_url"].split(",", 1)
+        with Image.open(io.BytesIO(base64.b64decode(encoded))) as rendered:
+            self.assertEqual(rendered.size, expected_size)
 
 
 if __name__ == "__main__":

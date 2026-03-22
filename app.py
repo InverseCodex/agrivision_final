@@ -10,6 +10,7 @@ import logging
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
@@ -25,7 +26,6 @@ from werkzeug.utils import secure_filename
 from analysis import (
     configure_model_paths,
     predict_growth_stage_from_path,
-    predict_growth_stage_from_rgb,
     predict_vegetation_damage_from_path,
     predict_vegetation_damage_from_rgb,
 )
@@ -1099,6 +1099,141 @@ def _trained_damage_model_result(
     }
 
 
+def _extract_field_stage_model(analysis: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(analysis, dict):
+        return {}
+
+    report = analysis.get("report", {}) if isinstance(analysis.get("report"), dict) else {}
+    model_result = report.get("model_result", {}) if isinstance(report.get("model_result"), dict) else {}
+    growth_stage_model = analysis.get("growth_stage_model", {}) if isinstance(analysis.get("growth_stage_model"), dict) else {}
+
+    growth_stage_label = str(
+        model_result.get("growth_stage_label")
+        or growth_stage_model.get("growth_stage_label")
+        or ""
+    )
+    growth_stage_probability = round(
+        float(
+            model_result.get("growth_stage_probability")
+            or growth_stage_model.get("growth_stage_probability")
+            or 0.0
+        ),
+        4,
+    )
+    growth_stage_confidence = round(
+        float(
+            model_result.get("growth_stage_confidence")
+            or growth_stage_model.get("growth_stage_confidence")
+            or growth_stage_model.get("confidence")
+            or 0.0
+        ),
+        4,
+    )
+    growth_stage_probabilities = {
+        str(name): round(float(value), 4)
+        for name, value in (
+            model_result.get("growth_stage_probabilities")
+            or growth_stage_model.get("growth_stage_probabilities")
+            or {}
+        ).items()
+    }
+    growth_stage_feature_values = {
+        str(name): round(float(value), 6)
+        for name, value in (
+            model_result.get("growth_stage_feature_values")
+            or growth_stage_model.get("feature_values")
+            or {}
+        ).items()
+    }
+    growth_stage_feature_names = [
+        str(name)
+        for name in (
+            model_result.get("growth_stage_feature_names")
+            or growth_stage_model.get("feature_names")
+            or []
+        )
+    ]
+    maturity_probability = round(
+        float(
+            model_result.get("maturity_probability")
+            or growth_stage_model.get("maturity_probability")
+            or 0.0
+        ),
+        4,
+    )
+    maturity_label = str(model_result.get("maturity_label", "") or "").strip().lower()
+    if maturity_label not in {"mature", "not_mature"}:
+        maturity_label = "mature" if growth_stage_label.strip().lower() == "mature (senescence)" or maturity_probability >= 0.5 else "not_mature"
+
+    stage_payload = {
+        "growth_stage_label": growth_stage_label,
+        "growth_stage_probability": growth_stage_probability,
+        "growth_stage_confidence": growth_stage_confidence,
+        "growth_stage_probabilities": growth_stage_probabilities,
+        "growth_stage_feature_values": growth_stage_feature_values,
+        "growth_stage_feature_names": growth_stage_feature_names,
+        "growth_stage_model_name": str(
+            model_result.get("growth_stage_model_name")
+            or growth_stage_model.get("model_name")
+            or ""
+        ),
+        "growth_stage_model_kind": str(
+            model_result.get("growth_stage_model_kind")
+            or growth_stage_model.get("model_kind")
+            or ""
+        ),
+        "maturity_label": maturity_label,
+        "maturity_probability": maturity_probability,
+    }
+    stage_payload["display_label"] = _phenological_stage_label(stage_payload)
+    return stage_payload
+
+
+def _field_stage_prediction_like(field_stage_model: dict[str, Any] | None) -> Any | None:
+    if not isinstance(field_stage_model, dict):
+        return None
+
+    stage_label = str(field_stage_model.get("growth_stage_label", "") or "").strip()
+    stage_probability = float(field_stage_model.get("growth_stage_probability", 0.0) or 0.0)
+    maturity_probability = float(field_stage_model.get("maturity_probability", 0.0) or 0.0)
+    if not stage_label and stage_probability <= 0.0 and maturity_probability <= 0.0:
+        return None
+
+    return SimpleNamespace(
+        predicted_label=stage_label,
+        growth_stage_probability=stage_probability,
+        probability=stage_probability,
+        confidence=float(field_stage_model.get("growth_stage_confidence", stage_probability) or 0.0),
+        maturity_probability=maturity_probability,
+        class_probabilities=field_stage_model.get("growth_stage_probabilities", {}) or {},
+        feature_values=field_stage_model.get("growth_stage_feature_values", {}) or {},
+        feature_names=field_stage_model.get("growth_stage_feature_names", []) or [],
+        model_name=str(field_stage_model.get("growth_stage_model_name", "") or ""),
+        model_kind=str(field_stage_model.get("growth_stage_model_kind", "") or ""),
+    )
+
+
+def _merge_field_stage_into_model_result(model_result: dict[str, Any], field_stage_model: dict[str, Any] | None) -> dict[str, Any]:
+    merged = dict(model_result or {})
+    if not isinstance(field_stage_model, dict):
+        return merged
+
+    for key in (
+        "growth_stage_label",
+        "growth_stage_probability",
+        "growth_stage_confidence",
+        "growth_stage_probabilities",
+        "growth_stage_feature_values",
+        "growth_stage_feature_names",
+        "growth_stage_model_name",
+        "growth_stage_model_kind",
+        "maturity_label",
+        "maturity_probability",
+    ):
+        merged[key] = field_stage_model.get(key, merged.get(key))
+    return merged
+
+
 def _trained_damage_summary(prediction: Any, stage_prediction: Any | None = None) -> tuple[str, str]:
     maturity_positive = _stage_is_mature(stage_prediction)
     stage_label = str(getattr(stage_prediction, "predicted_label", "") or "")
@@ -1212,7 +1347,7 @@ def _ml_segment_recommendation(segment: dict[str, Any]) -> str:
             f"This segment is likely unhealthy or damaged ({confidence}% confidence), but that is not a certainty."
         ]
         if stage_label:
-            parts.append(f"The stage model also places it in {stage_label}.")
+            parts.append(f"The field-wide stage model places the overall field in {stage_label}.")
         if tgi < 0:
             parts.append("The lower greenness signal deserves an on-site check for stress, discoloration, or damage.")
         if uniformity < 45.0:
@@ -1222,7 +1357,7 @@ def _ml_segment_recommendation(segment: dict[str, Any]) -> str:
 
     return (
         f"This segment is likely healthy ({confidence}% confidence), though the prediction is still only a model estimate. "
-        f"{('The stage model places it in ' + stage_label + '. ') if stage_label else ''}"
+        f"{('The field-wide stage model places the overall field in ' + stage_label + '. ') if stage_label else ''}"
         "Keep monitoring and verify any suspicious areas in person."
     )
 
@@ -1244,7 +1379,7 @@ def _ml_segment_possible_issue(segment: dict[str, Any]) -> str:
         if tgi < 0:
             return "Likely reduced greenness or chlorophyll-related stress, but not with certainty from the image alone."
         if stage_label:
-            return f"The model likely sees damage or unhealthy vegetation in a segment currently classified as {stage_label}, but it should be validated on-site."
+            return f"The model likely sees damage or unhealthy vegetation in this cell while the overall field stage is {stage_label}, but it should be validated on-site."
         return "The model likely sees damage or unhealthy vegetation in this cell, but it should be validated on-site."
 
     if uniformity < 55.0:
@@ -1372,6 +1507,32 @@ def _normalize_polygon_points(points: Any) -> list[tuple[float, float]]:
             continue
         normalized.append((round(x, 6), round(y, 6)))
     return normalized
+
+
+def _default_full_selection_points() -> list[tuple[float, float]]:
+    return [
+        (0.0, 0.0),
+        (1.0, 0.0),
+        (1.0, 1.0),
+        (0.0, 1.0),
+    ]
+
+
+def _is_full_frame_quad(points: list[tuple[int, int]], width: int, height: int, tolerance_px: int = 2) -> bool:
+    if len(points) != 4 or width <= 0 or height <= 0:
+        return False
+
+    ordered = _order_quad_points(points)
+    expected = [
+        (0, 0),
+        (max(width - 1, 0), 0),
+        (max(width - 1, 0), max(height - 1, 0)),
+        (0, max(height - 1, 0)),
+    ]
+    return all(
+        abs(int(actual[0]) - int(target[0])) <= tolerance_px and abs(int(actual[1]) - int(target[1])) <= tolerance_px
+        for actual, target in zip(ordered, expected)
+    )
 
 
 def _derive_adaptive_grid_dimensions(
@@ -1516,13 +1677,12 @@ def analyze_freeform_cropped_segments(
     points: list[tuple[float, float]],
     grid_rows: int,
     grid_cols: int,
+    field_stage_model: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from PIL import Image, ImageDraw
 
     with Image.open(original_path) as source:
-        rgb = source.convert("RGB")
-        if max(rgb.size) > ANALYSIS_MAX_DIMENSION:
-            rgb.thumbnail((ANALYSIS_MAX_DIMENSION, ANALYSIS_MAX_DIMENSION), Image.Resampling.LANCZOS)
+        rgb = _prepare_rgb_for_analysis(source)
 
     width, height = rgb.size
     px_points: list[tuple[int, int]] = []
@@ -1541,24 +1701,11 @@ def analyze_freeform_cropped_segments(
     if not bbox:
         raise RuntimeError("Invalid crop selection. Please draw a larger area.")
 
+    # Preserve the uploaded image geometry during segmentation so overlays
+    # always follow the original field proportions and orientation.
     analysis_rgb = rgb
     analysis_mask = polygon_mask
-    preprocessing_stage = "masked-selection"
-
-    # Lightweight orthorectification (not multi-image stitching) for 4-corner selections.
-    if len(px_points) == 4:
-        ordered_quad = _order_quad_points(px_points)
-        out_w, out_h = _estimate_rectified_size(ordered_quad)
-        quad_data = tuple(float(v) for xy in ordered_quad for v in xy)
-        rectified = rgb.transform(
-            (out_w, out_h),
-            Image.Transform.QUAD,
-            quad_data,
-            resample=Image.Resampling.BICUBIC,
-        )
-        analysis_rgb = _enhance_for_model(rectified.convert("RGB"))
-        analysis_mask = Image.new("L", (out_w, out_h), 255)
-        preprocessing_stage = "orthorectified-selection"
+    preprocessing_stage = "shape-preserved-selection"
 
     bbox = analysis_mask.getbbox()
     if not bbox:
@@ -1572,16 +1719,15 @@ def analyze_freeform_cropped_segments(
     masked_original = analysis_rgb.convert("RGBA")
     masked_original.putalpha(analysis_mask)
 
+    field_stage_model = dict(field_stage_model or {})
+    field_stage_prediction = _field_stage_prediction_like(field_stage_model)
+
     metrics = _masked_rgb_metrics(analysis_rgb, analysis_mask)
     trained_prediction = predict_vegetation_damage_from_rgb(
         np.asarray(analysis_rgb, dtype=np.uint8),
         mask=np.asarray(analysis_mask.convert("L"), dtype=np.uint8),
     )
-    stage_prediction = predict_growth_stage_from_rgb(
-        np.asarray(analysis_rgb, dtype=np.uint8),
-        mask=np.asarray(analysis_mask.convert("L"), dtype=np.uint8),
-    )
-    summary, explanation = _trained_damage_summary(trained_prediction, stage_prediction)
+    summary, explanation = _trained_damage_summary(trained_prediction, field_stage_prediction)
     extended_indices = _compute_extended_rgb_indices(
         metrics["mean_r"], metrics["mean_g"], metrics["mean_b"], metrics["green_coverage"]
     )
@@ -1594,8 +1740,9 @@ def analyze_freeform_cropped_segments(
     model_result = _trained_damage_model_result(
         trained_prediction,
         health_score=weighted_health_score,
-        stage_prediction=stage_prediction,
+        stage_prediction=None,
     )
+    model_result = _merge_field_stage_into_model_result(model_result, field_stage_model)
     report_payload = {
         "one_line_summary": summary,
         "simple_explanation": explanation,
@@ -1603,7 +1750,7 @@ def analyze_freeform_cropped_segments(
         "recommendations": _trained_damage_recommendations(
             trained_prediction,
             model_result.get("feature_values"),
-            stage_prediction=stage_prediction,
+            stage_prediction=field_stage_prediction,
         ),
     }
     zone = _management_zone_recommendation(extended_indices, stress_ratio=metrics["stress_ratio"])
@@ -1678,10 +1825,6 @@ def analyze_freeform_cropped_segments(
                     np.asarray(region_rgb.convert("RGB"), dtype=np.uint8),
                     mask=np.asarray(region_mask.convert("L"), dtype=np.uint8),
                 )
-                region_stage_prediction = predict_growth_stage_from_rgb(
-                    np.asarray(region_rgb.convert("RGB"), dtype=np.uint8),
-                    mask=np.asarray(region_mask.convert("L"), dtype=np.uint8),
-                )
                 region_indices = _compute_extended_rgb_indices(
                     region_metrics["mean_r"],
                     region_metrics["mean_g"],
@@ -1698,8 +1841,9 @@ def analyze_freeform_cropped_segments(
                 health = _trained_damage_model_result(
                     region_prediction,
                     health_score=region_health_score,
-                    stage_prediction=region_stage_prediction,
+                    stage_prediction=None,
                 )
+                health = _merge_field_stage_into_model_result(health, field_stage_model)
                 segment_payload = {
                     "segment_id": str(segment_index),
                     "row": row + 1,
@@ -1759,15 +1903,15 @@ def analyze_freeform_cropped_segments(
                         "threshold": 0.0,
                         "healthy_probability": 0.0,
                         "unhealthy_damaged_probability": 0.0,
-                        "growth_stage_label": "",
-                        "growth_stage_probability": 0.0,
-                        "growth_stage_probabilities": {},
-                        "maturity_probability": 0.0,
-                        "maturity_label": "not_mature",
+                        "growth_stage_label": str(field_stage_model.get("growth_stage_label", "") or ""),
+                        "growth_stage_probability": round(float(field_stage_model.get("growth_stage_probability", 0.0) or 0.0), 4),
+                        "growth_stage_probabilities": field_stage_model.get("growth_stage_probabilities", {}) or {},
+                        "maturity_probability": round(float(field_stage_model.get("maturity_probability", 0.0) or 0.0), 4),
+                        "maturity_label": str(field_stage_model.get("maturity_label", "not_mature") or "not_mature"),
                         "health_feature_values": {},
                         "health_feature_names": [],
-                        "stage_feature_values": {},
-                        "stage_feature_names": [],
+                        "stage_feature_values": field_stage_model.get("growth_stage_feature_values", {}) or {},
+                        "stage_feature_names": field_stage_model.get("growth_stage_feature_names", []) or [],
                         "green_coverage_pct": 0.0,
                         "estimated_stress_zone_pct": 0.0,
                         "vegetation_vigor_score": 0.0,
@@ -1837,12 +1981,12 @@ def analyze_freeform_cropped_segments(
         },
         "vegetation_damage_model": model_result,
         "growth_stage_model": {
-            "growth_stage_label": model_result.get("growth_stage_label", ""),
-            "growth_stage_probability": model_result.get("growth_stage_probability", 0.0),
-            "growth_stage_probabilities": model_result.get("growth_stage_probabilities", {}),
-            "maturity_probability": model_result.get("maturity_probability", 0.0),
-            "feature_values": model_result.get("growth_stage_feature_values", {}),
-            "feature_names": model_result.get("growth_stage_feature_names", []),
+            "growth_stage_label": field_stage_model.get("growth_stage_label", model_result.get("growth_stage_label", "")),
+            "growth_stage_probability": field_stage_model.get("growth_stage_probability", model_result.get("growth_stage_probability", 0.0)),
+            "growth_stage_probabilities": field_stage_model.get("growth_stage_probabilities", model_result.get("growth_stage_probabilities", {})),
+            "maturity_probability": field_stage_model.get("maturity_probability", model_result.get("maturity_probability", 0.0)),
+            "feature_values": field_stage_model.get("growth_stage_feature_values", model_result.get("growth_stage_feature_values", {})),
+            "feature_names": field_stage_model.get("growth_stage_feature_names", model_result.get("growth_stage_feature_names", [])),
         },
         "report": report_payload,
     }
@@ -1996,8 +2140,10 @@ def build_farmer_result_payload(entry: dict[str, Any], analysis: dict[str, Any] 
     model_result = report.get("model_result", {}) if isinstance(report, dict) else {}
     if not isinstance(model_result, dict):
         model_result = {}
+    field_stage_model = _extract_field_stage_model(analysis)
     model_result = {
         "health_band": entry.get("health_band", ""),
+        **field_stage_model,
         **model_result,
     }
     farmer_features = analysis.get("farmer_features", {}) if isinstance(analysis, dict) else {}
@@ -2579,12 +2725,14 @@ def result_view(image_id: str):
         return redirect(url_for("results_page"))
     analysis = load_result_analysis(entry)
     personalization = read_result_personalization(analysis)
+    field_stage = _extract_field_stage_model(analysis)
     site_url = request.url_root.rstrip("/")
     return render_template(
         "result-view.html",
         result=entry,
         analysis=analysis,
         personalization=personalization,
+        field_stage=field_stage,
         canonical_url=f"{site_url}/results/{image_id}",
     )
 
@@ -2602,12 +2750,14 @@ def embedded_result_view(image_id: str):
 
     analysis = load_result_analysis(entry)
     personalization = read_result_personalization(analysis)
+    field_stage = _extract_field_stage_model(analysis)
     site_url = request.url_root.rstrip("/")
     return render_template(
         "embedded_result_view.html",
         result=entry,
         analysis=analysis,
         personalization=personalization,
+        field_stage=field_stage,
         canonical_url=f"{site_url}/results/{image_id}",
     )
 
@@ -2713,7 +2863,7 @@ def crop_rerun_result(image_id: str):
     payload = request.get_json(silent=True) or {}
     points = _normalize_polygon_points(payload.get("points"))
     if len(points) < 3:
-        return jsonify({"error": "Please draw a freeform crop area first."}), 400
+        points = _default_full_selection_points()
 
     try:
         grid_rows = int(payload.get("grid_rows", 4))
@@ -2726,14 +2876,22 @@ def crop_rerun_result(image_id: str):
 
     original_path, created_temp = _resolve_original_result_image(user_id, image_id, entry)
     if original_path is None or not original_path.exists():
-        return jsonify({"error": "Original image unavailable for crop analysis."}), 404
+        return jsonify({"error": "Original image unavailable for segmentation."}), 404
 
     try:
-        response = analyze_freeform_cropped_segments(original_path, image_id, points, grid_rows, grid_cols)
-        add_upload_log(user_id, f"Cropped segment analysis completed ({image_id})", "success")
+        field_stage_model = _extract_field_stage_model(load_result_analysis(entry))
+        response = analyze_freeform_cropped_segments(
+            original_path,
+            image_id,
+            points,
+            grid_rows,
+            grid_cols,
+            field_stage_model=field_stage_model,
+        )
+        add_upload_log(user_id, f"Field segmentation completed ({image_id})", "success")
         return jsonify(response)
     except Exception as exc:
-        add_upload_log(user_id, f"Cropped segment analysis failed ({image_id}): {exc}", "error")
+        add_upload_log(user_id, f"Field segmentation failed ({image_id}): {exc}", "error")
         return jsonify({"error": str(exc)}), 400
     finally:
         if created_temp:

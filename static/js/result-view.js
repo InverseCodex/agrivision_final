@@ -25,6 +25,8 @@ const runCroppedAnalysisButton = document.getElementById("run-cropped-analysis")
 const showCropToolButton = document.getElementById("show-crop-tool");
 const toggleFocusModeButton = document.getElementById("toggle-focus-mode");
 const cropAnalysisStatus = document.getElementById("crop-analysis-status");
+const analysisLoadingOverlay = document.getElementById("analysis-loading-overlay");
+const analysisLoadingText = document.getElementById("analysis-loading-text");
 const mobileCropPresets = document.getElementById("mobile-crop-presets");
 const segmentVisualFrame = document.getElementById("segment-visual-frame");
 const segmentViewOriginalButton = document.getElementById("segment-view-original");
@@ -83,6 +85,7 @@ const recSegIssue = document.getElementById("rec-seg-issue");
 const recSegReco = document.getElementById("rec-seg-reco");
 
 const initialPersonalizationEl = document.getElementById("initial-personalization");
+const initialFieldStageEl = document.getElementById("initial-field-stage");
 const forcedTheme = document.body.dataset.forceTheme || "";
 const savedTheme = forcedTheme || localStorage.getItem("site_theme") || "default";
 const motionEnabled = localStorage.getItem("site_motion_enabled");
@@ -98,6 +101,7 @@ const resultId =
     recommendationList?.dataset.resultId ||
     window.location.pathname.split("/").filter(Boolean).pop() ||
     "unknown";
+const segmentationOnlyMode = document.body.dataset.segmentationOnly === "true";
 
 let saveTimer = null;
 let segmentRows = 4;
@@ -108,10 +112,35 @@ let latestGrid = { rows: 4, cols: 4, row_weights: [1, 1, 1, 1], col_weights: [1,
 
 let handlePoints = [];
 let activeHandleIndex = -1;
-let currentSegmentVisualMode = "heatzone";
+let currentSegmentVisualMode = "original";
 let focusModeEnabled = false;
 let focusModalOpen = false;
 let focusModalCloseTimer = null;
+
+function idleAnalysisActionLabel() {
+    return segmentationOnlyMode ? "Run Segmentation" : "Analyze Cropped Area";
+}
+
+function busyAnalysisActionLabel() {
+    return segmentationOnlyMode ? "Running Segmentation" : "Analyzing Crop Area";
+}
+
+function defaultSelectionPoints() {
+    if (segmentationOnlyMode) {
+        return [
+            { x: 0.0, y: 0.0 },
+            { x: 1.0, y: 0.0 },
+            { x: 1.0, y: 1.0 },
+            { x: 0.0, y: 1.0 },
+        ];
+    }
+    return [
+        { x: 0.2, y: 0.2 },
+        { x: 0.82, y: 0.18 },
+        { x: 0.84, y: 0.82 },
+        { x: 0.18, y: 0.85 },
+    ];
+}
 
 function isEmbeddedResultView() {
     return document.body.classList.contains("embedded-result-body");
@@ -181,17 +210,16 @@ function formatHealthBandLabel(value) {
         .join(" ");
 }
 
-function formatPhenologicalStageLabel(segment) {
-    if (!segment || segment.empty) {
-        return "Not scored";
-    }
-    const growthStageLabel = String(segment.growth_stage_label || "").trim();
+function formatPhenologicalStageLabel(source = null) {
+    const stageSource = source && typeof source === "object" ? source : fieldStageState;
+    const growthStageLabel = String(stageSource.growth_stage_label || "").trim();
     if (growthStageLabel) {
         return growthStageLabel;
     }
-    const healthBand = String(segment.health_band || "").trim().toLowerCase();
-    const maturityProbability = Number(segment.maturity_probability ?? segment.growth_stage_probability ?? 0);
-    if (healthBand === "mature" || maturityProbability >= 0.5) {
+    const maturityLabel = String(stageSource.maturity_label || "").trim().toLowerCase();
+    const healthBand = String(stageSource.health_band || "").trim().toLowerCase();
+    const maturityProbability = Number(stageSource.maturity_probability ?? stageSource.growth_stage_probability ?? 0);
+    if (maturityLabel === "mature" || healthBand === "mature" || maturityProbability >= 0.5) {
         return "Likely mature stage";
     }
     if (maturityProbability > 0) {
@@ -200,13 +228,28 @@ function formatPhenologicalStageLabel(segment) {
     return "Stage not available";
 }
 
+function getFieldStageDisplayLabel() {
+    return formatPhenologicalStageLabel(fieldStageState);
+}
+
+function getFieldStageRawLabel() {
+    const rawLabel = String(fieldStageState.growth_stage_label || "").trim();
+    return rawLabel || getFieldStageDisplayLabel();
+}
+
+function getFieldStageProbability() {
+    const numeric = Number(fieldStageState.growth_stage_probability ?? fieldStageState.maturity_probability ?? 0);
+    return Number.isFinite(numeric) ? numeric : 0;
+}
+
 function buildSegmentStatusItems(segment) {
     if (!segment) {
         return null;
     }
+    const fieldStageValue = getFieldStageDisplayLabel();
     if (segment.empty) {
         return [
-            { label: "Phenological Stage", value: "Not scored" },
+            { label: "Phenological Stage", value: fieldStageValue },
             { label: "Healthiness", value: "No usable crop" },
             { label: "Canopy Cover", value: "-" },
             { label: "Vigor", value: "-" },
@@ -215,7 +258,7 @@ function buildSegmentStatusItems(segment) {
         ];
     }
     return [
-        { label: "Phenological Stage", value: formatPhenologicalStageLabel(segment) },
+        { label: "Phenological Stage", value: fieldStageValue },
         { label: "Healthiness", value: formatHealthBandLabel(segment.health_band) },
         { label: "Canopy Cover", value: formatStatusMetricValue(segment.canopy_cover_pct, "%") },
         { label: "Vigor", value: formatStatusMetricValue(segment.vegetation_vigor_score, "/100") },
@@ -250,6 +293,16 @@ let personalizationState = {
     recommendation_checks: [],
     flags: [],
 };
+let fieldStageState = {
+    growth_stage_label: "",
+    growth_stage_probability: 0,
+    growth_stage_probabilities: {},
+    growth_stage_feature_values: {},
+    growth_stage_feature_names: [],
+    maturity_label: "not_mature",
+    maturity_probability: 0,
+    display_label: "Stage not available",
+};
 
 const SEGMENT_THRESHOLDS = {
     health_score: 60,
@@ -270,6 +323,13 @@ const SEGMENT_STATUS_BANDS = [
 try {
     const parsed = JSON.parse(initialPersonalizationEl?.textContent || "{}");
     personalizationState = { ...personalizationState, ...parsed };
+} catch (_) {
+    // ignore malformed json
+}
+
+try {
+    const parsed = JSON.parse(initialFieldStageEl?.textContent || "{}");
+    fieldStageState = { ...fieldStageState, ...parsed };
 } catch (_) {
     // ignore malformed json
 }
@@ -321,6 +381,30 @@ function formatFeatureSummaryInline(featureNames, featureValues) {
         return "-";
     }
     return names.map((name) => `${String(name || "").replaceAll("_", " ").toUpperCase()}: ${values[name] ?? "-"}`).join(", ");
+}
+
+function applyFieldStageToAdvancedPanel(segment = null) {
+    const stageLabel = getFieldStageRawLabel();
+    if (advStageFeatureSummary) {
+        advStageFeatureSummary.innerHTML = formatFeatureSummaryBlock(
+            fieldStageState.growth_stage_feature_names,
+            fieldStageState.growth_stage_feature_values,
+        );
+    }
+    if (advMaturityLabel) {
+        advMaturityLabel.textContent = String(stageLabel || "-").replaceAll("_", " ").toUpperCase();
+    }
+    if (advMaturityProbability) {
+        advMaturityProbability.textContent = formatPercentFromProbability(getFieldStageProbability());
+    }
+    if (advModelFindings) {
+        if (segment && !segment.empty) {
+            const label = String(segment.health_band || "").replaceAll("_", " ").toUpperCase();
+            advModelFindings.textContent = `Selected segment prediction is likely ${label || "UNKNOWN"} while the field-wide stage model points to ${stageLabel || "an unknown stage"} for the overall image.`;
+        } else {
+            advModelFindings.textContent = `The field-wide stage model points to ${stageLabel || "an unknown stage"} for the overall image.`;
+        }
+    }
 }
 
 function classifySegmentMetric(segment, key) {
@@ -396,10 +480,38 @@ function getSegmentBoundsPercent(segment, grid) {
     return { left, top, width, height };
 }
 
+function segmentVisualModeLabel() {
+    return currentSegmentVisualMode === "original" ? "Original Image" : "AI Image";
+}
+
+function getBaseOriginalPreviewSource() {
+    const source = cropSourceImage?.currentSrc || cropSourceImage?.src || croppedOriginalPreview?.src || "";
+    return typeof source === "string" ? source : "";
+}
+
+function getBaseOriginalPreviewImage() {
+    if (cropSourceImage?.complete && cropSourceImage.naturalWidth > 0 && getBaseOriginalPreviewSource()) {
+        return cropSourceImage;
+    }
+    if (croppedOriginalPreview?.complete && croppedOriginalPreview.naturalWidth > 0 && croppedOriginalPreview.src) {
+        return croppedOriginalPreview;
+    }
+    return null;
+}
+
+function syncOriginalSegmentPreviewSource(fallbackSource = "") {
+    if (!croppedOriginalPreview) return;
+    const source = getBaseOriginalPreviewSource() || String(fallbackSource || "");
+    if (!source) return;
+    if (croppedOriginalPreview.getAttribute("src") !== source) {
+        croppedOriginalPreview.src = source;
+    }
+}
+
 function renderFocusSegmentPreview(segment) {
     if (!focusSegmentPreview || !focusSegmentPreviewEmpty) return;
     if (focusSegmentViewLabel) {
-        focusSegmentViewLabel.textContent = `Current mode: ${currentSegmentVisualMode === "original" ? "Original" : "AI Image"}`;
+        focusSegmentViewLabel.textContent = `Current mode: ${segmentVisualModeLabel()}`;
     }
 
     if (!segment) {
@@ -411,7 +523,7 @@ function renderFocusSegmentPreview(segment) {
     }
 
     const source = currentSegmentVisualMode === "original"
-        ? (croppedOriginalPreview?.src || "")
+        ? getBaseOriginalPreviewSource()
         : (croppedHeatzonePreview?.src || "");
     if (!source) {
         focusSegmentPreview.style.backgroundImage = "none";
@@ -445,6 +557,35 @@ function setCropViewMode(mode) {
     } else {
         cropAnalysisLayout.classList.add("mode-edit");
     }
+}
+
+function setAnalyzingState(isAnalyzing, message = "AgriVision is scoring the selected area.") {
+    cropAnalysisLayout?.classList.toggle("is-analyzing", isAnalyzing);
+    cropAnalysisLayout?.setAttribute("aria-busy", String(isAnalyzing));
+
+    if (analysisLoadingText) {
+        analysisLoadingText.textContent = message;
+    }
+    if (analysisLoadingOverlay) {
+        analysisLoadingOverlay.hidden = !isAnalyzing;
+        analysisLoadingOverlay.setAttribute("aria-hidden", String(!isAnalyzing));
+    }
+    if (runCroppedAnalysisButton) {
+        runCroppedAnalysisButton.disabled = isAnalyzing;
+        runCroppedAnalysisButton.classList.toggle("is-loading", isAnalyzing);
+        runCroppedAnalysisButton.setAttribute("aria-busy", String(isAnalyzing));
+        runCroppedAnalysisButton.textContent = isAnalyzing ? busyAnalysisActionLabel() : idleAnalysisActionLabel();
+    }
+
+    [resetCropShapeButton, clearCropResultsButton].forEach((button) => {
+        if (button) {
+            button.disabled = isAnalyzing;
+        }
+    });
+
+    mobileCropPresets?.querySelectorAll("button")?.forEach((button) => {
+        button.disabled = isAnalyzing;
+    });
 }
 
 function setSegmentMetricValues(segment) {
@@ -483,6 +624,7 @@ function setSegmentMetricValues(segment) {
 
 function setAdvancedPanelFromSegment(segment) {
     if (!segment || segment.empty) {
+        applyFieldStageToAdvancedPanel(segment);
         return;
     }
     if (advGreenCoverage) advGreenCoverage.textContent = `${segment.green_coverage_pct}%`;
@@ -506,17 +648,10 @@ function setAdvancedPanelFromSegment(segment) {
     if (advYieldPotential) advYieldPotential.textContent = `${segment.relative_yield_potential_pct ?? "-"}%`;
     if (advPredictionProbability) advPredictionProbability.textContent = formatPercentFromProbability(segment.prediction_probability);
     if (advHealthFeatureSummary) advHealthFeatureSummary.innerHTML = formatFeatureSummaryBlock(segment.health_feature_names, segment.health_feature_values);
-    if (advStageFeatureSummary) advStageFeatureSummary.innerHTML = formatFeatureSummaryBlock(segment.stage_feature_names, segment.stage_feature_values);
     if (advHealthyProbability) advHealthyProbability.textContent = formatPercentFromProbability(segment.healthy_probability);
     if (advUnhealthyProbability) advUnhealthyProbability.textContent = formatPercentFromProbability(segment.unhealthy_damaged_probability);
-    if (advMaturityLabel) advMaturityLabel.textContent = String(segment.growth_stage_label || "-").replaceAll("_", " ").toUpperCase();
-    if (advMaturityProbability) advMaturityProbability.textContent = formatPercentFromProbability(segment.growth_stage_probability);
     if (advThreshold) advThreshold.textContent = formatScore(segment.threshold ?? 0.5);
-    if (advModelFindings) {
-        const label = String(segment.health_band || "").replaceAll("_", " ").toUpperCase();
-        const stage = String(segment.growth_stage_label || "unknown stage").replaceAll("_", " ");
-        advModelFindings.textContent = `Selected segment prediction is likely ${label || "UNKNOWN"} while the stage model points to ${stage}.`;
-    }
+    applyFieldStageToAdvancedPanel(segment);
 }
 
 function setSegmentVisualMode(mode) {
@@ -665,9 +800,9 @@ function renderFocusModeDetails(segment) {
         ["Prediction confidence", formatPercentFromProbability(segment.confidence)],
         ["Healthy probability", formatPercentFromProbability(segment.healthy_probability)],
         ["Unhealthy/damaged probability", formatPercentFromProbability(segment.unhealthy_damaged_probability)],
-        ["Growth stage", String(segment.growth_stage_label || "-")],
-        ["Growth-stage probability", formatPercentFromProbability(segment.growth_stage_probability)],
-        ["Mature-stage probability", formatPercentFromProbability(segment.maturity_probability)],
+        ["Field growth stage", getFieldStageRawLabel()],
+        ["Field-stage probability", formatPercentFromProbability(getFieldStageProbability())],
+        ["Mature-stage probability", formatPercentFromProbability(fieldStageState.maturity_probability)],
         ["Green coverage", formatScore(segment.green_coverage_pct, "%")],
         ["Stress zone", formatScore(segment.estimated_stress_zone_pct, "%")],
         ["Vigor", formatScore(segment.vegetation_vigor_score)],
@@ -675,7 +810,7 @@ function renderFocusModeDetails(segment) {
         ["Biomass", formatScore(segment.relative_biomass_score)],
         ["Uniformity", formatScore(segment.stand_uniformity_score)],
         ["Health features", formatFeatureSummaryInline(segment.health_feature_names, segment.health_feature_values)],
-        ["Stage features", formatFeatureSummaryInline(segment.stage_feature_names, segment.stage_feature_values)],
+        ["Field-stage features", formatFeatureSummaryInline(fieldStageState.growth_stage_feature_names, fieldStageState.growth_stage_feature_values)],
         ["Management zone", segment.management_zone || "-"],
         ["Management action", segment.management_action || "-"],
     ];
@@ -686,7 +821,7 @@ function renderFocusModeDetails(segment) {
     const recommendations = [
         segment.recommendation,
         segment.possible_issue,
-        `Model finding: likely ${String(segment.health_band || "").replaceAll("_", " ")} with confidence ${formatPercentFromProbability(segment.confidence)} while the stage model points to ${segment.growth_stage_label || "an unknown stage"}.`,
+        `Model finding: likely ${String(segment.health_band || "").replaceAll("_", " ")} with confidence ${formatPercentFromProbability(segment.confidence)} while the field-wide stage model points to ${getFieldStageRawLabel() || "an unknown stage"}.`,
         segment.unhealthy_damaged_probability >= 0.5
             ? "Action note: verify the flagged area on-site before applying targeted treatment."
             : "Action note: maintain monitoring and compare this segment with surrounding cells on the next scan.",
@@ -695,12 +830,7 @@ function renderFocusModeDetails(segment) {
 }
 
 function resetDefaultCropShape() {
-    handlePoints = [
-        { x: 0.2, y: 0.2 },
-        { x: 0.82, y: 0.18 },
-        { x: 0.84, y: 0.82 },
-        { x: 0.18, y: 0.85 },
-    ];
+    handlePoints = defaultSelectionPoints();
     drawCropOverlay();
 }
 
@@ -710,7 +840,7 @@ function drawCropOverlay() {
     if (!ctx) return;
 
     ctx.clearRect(0, 0, cropOverlayCanvas.width, cropOverlayCanvas.height);
-    if (handlePoints.length !== 4) return;
+    if (segmentationOnlyMode || handlePoints.length !== 4) return;
 
     ctx.beginPath();
     ctx.moveTo(handlePoints[0].x * cropOverlayCanvas.width, handlePoints[0].y * cropOverlayCanvas.height);
@@ -741,6 +871,7 @@ function drawCropOverlay() {
 function resizeCropCanvas() {
     if (!cropOverlayCanvas || !cropDrawFrame) return;
     if (cropSourceImage && cropSourceImage.complete) {
+        syncOriginalSegmentPreviewSource();
         fitFrameToViewport(cropDrawFrame, cropSourceImage, {
             minHeight: 280,
             viewportOffset: 230,
@@ -756,12 +887,11 @@ function resizeCropCanvas() {
 function normalizeSegmentPreviewFrame() {
     if (!segmentVisualFrame) return;
     const candidate =
+        getActiveSegmentPreviewImage() ||
         (croppedHeatzonePreview && croppedHeatzonePreview.complete && croppedHeatzonePreview.naturalWidth > 0 && croppedHeatzonePreview.src
             ? croppedHeatzonePreview
             : null) ||
-        (croppedOriginalPreview && croppedOriginalPreview.complete && croppedOriginalPreview.naturalWidth > 0 && croppedOriginalPreview.src
-            ? croppedOriginalPreview
-            : null);
+        getBaseOriginalPreviewImage();
     if (!candidate) return;
     fitFrameToViewport(segmentVisualFrame, candidate, {
         minHeight: 260,
@@ -772,7 +902,8 @@ function normalizeSegmentPreviewFrame() {
 
 function getActiveSegmentPreviewImage() {
     if (currentSegmentVisualMode === "original") {
-        if (croppedOriginalPreview?.src && croppedOriginalPreview.naturalWidth > 0) return croppedOriginalPreview;
+        const baseOriginalPreview = getBaseOriginalPreviewImage();
+        if (baseOriginalPreview) return baseOriginalPreview;
         if (croppedHeatzonePreview?.src && croppedHeatzonePreview.naturalWidth > 0) return croppedHeatzonePreview;
         return null;
     }
@@ -1027,13 +1158,24 @@ function renderSegmentButtons(segments, grid) {
 async function runCroppedAnalysis() {
     if (!runCroppedAnalysisButton) return;
     if (handlePoints.length !== 4) {
-        setCropStatus("Reset crop shape first.", "error");
+        resetDefaultCropShape();
+    }
+    if (handlePoints.length !== 4) {
+        setCropStatus(segmentationOnlyMode ? "Segmentation area is not ready." : "Reset crop shape first.", "error");
         return;
     }
 
-    runCroppedAnalysisButton.disabled = true;
-    runCroppedAnalysisButton.textContent = "Analyzing...";
-    setCropStatus("Analyzing cropped area and segment scores...");
+    setAnalyzingState(
+        true,
+        segmentationOnlyMode
+            ? "Running full-image segmentation. This can take a few seconds."
+            : "Running the model on your crop selection. This can take a few seconds.",
+    );
+    setCropStatus(
+        segmentationOnlyMode
+            ? "Running segmentation across the full image. Please wait..."
+            : "Analyzing cropped area and segment scores. Please wait...",
+    );
 
     try {
         const response = await fetch(`/api/results/${encodeURIComponent(resultId)}/crop-rerun`, {
@@ -1053,9 +1195,7 @@ async function runCroppedAnalysis() {
             throw new Error(payload.error || "Cropped analysis failed.");
         }
 
-        if (croppedOriginalPreview) {
-            croppedOriginalPreview.src = payload.cropped_original_data_url || "";
-        }
+        syncOriginalSegmentPreviewSource(payload.cropped_original_data_url || "");
         if (croppedHeatzonePreview) {
             croppedHeatzonePreview.src = payload.cropped_heatzone_data_url || "";
         }
@@ -1064,13 +1204,17 @@ async function runCroppedAnalysis() {
 
         latestSegments = Array.isArray(payload.segments) ? payload.segments : [];
         renderSegmentButtons(latestSegments, payload.grid || { rows: 4, cols: 4 });
-        setCropStatus("Done. Review the segment table below and select a row to update the recommendation.", "success");
+        setCropStatus(
+            segmentationOnlyMode
+                ? "Segmentation complete. Select a segment to inspect its recommendation."
+                : "Done. Review the segment table below and select a row to update the recommendation.",
+            "success",
+        );
         setCropViewMode("results");
     } catch (error) {
-        setCropStatus(String(error.message || "Cropped analysis failed."), "error");
+        setCropStatus(String(error.message || (segmentationOnlyMode ? "Segmentation failed." : "Cropped analysis failed.")), "error");
     } finally {
-        runCroppedAnalysisButton.disabled = false;
-        runCroppedAnalysisButton.textContent = "Analyze Cropped Area";
+        setAnalyzingState(false);
     }
 }
 
@@ -1217,7 +1361,8 @@ document.addEventListener("keydown", (event) => {
         closeFocusModal();
     }
 });
-setSegmentVisualMode("heatzone");
+syncOriginalSegmentPreviewSource();
+setSegmentVisualMode("original");
 setFocusMode(false);
 
 if (pdfDownloadLink) {
@@ -1228,10 +1373,12 @@ if (pdfDownloadLink) {
 
 if (cropSourceImage && cropOverlayCanvas) {
     if (cropSourceImage.complete) {
+        syncOriginalSegmentPreviewSource();
         resizeCropCanvas();
         resetDefaultCropShape();
     } else {
         cropSourceImage.addEventListener("load", () => {
+            syncOriginalSegmentPreviewSource();
             resizeCropCanvas();
             resetDefaultCropShape();
         });
@@ -1242,50 +1389,52 @@ if (cropSourceImage && cropOverlayCanvas) {
         normalizeSegmentPreviewFrame();
     });
 
-    cropOverlayCanvas.addEventListener("pointerdown", (event) => {
-        const point = pointerToNormalizedPoint(event);
-        if (!point) return;
-        let idx = findNearestHandleIndex(point);
-        if (idx < 0 && isCoarsePointer() && handlePoints.length) {
-            idx = handlePoints
-                .map((h, i) => ({ i, d: Math.hypot(point.x - h.x, point.y - h.y) }))
-                .sort((a, b) => a.d - b.d)[0]?.i ?? -1;
-        }
-        if (idx < 0) return;
-        activeHandleIndex = idx;
-        cropOverlayCanvas.setPointerCapture(event.pointerId);
-        cropOverlayCanvas.style.cursor = "grabbing";
-        drawCropOverlay();
-    });
-
-    cropOverlayCanvas.addEventListener("pointermove", (event) => {
-        if (activeHandleIndex < 0) return;
-        const point = pointerToNormalizedPoint(event);
-        if (!point) return;
-        handlePoints[activeHandleIndex] = point;
-        drawCropOverlay();
-    });
-
-    cropOverlayCanvas.addEventListener("pointerup", (event) => {
-        if (activeHandleIndex >= 0) {
-            activeHandleIndex = -1;
-            cropOverlayCanvas.style.cursor = "grab";
-            cropOverlayCanvas.releasePointerCapture(event.pointerId);
+    if (!segmentationOnlyMode) {
+        cropOverlayCanvas.addEventListener("pointerdown", (event) => {
+            const point = pointerToNormalizedPoint(event);
+            if (!point) return;
+            let idx = findNearestHandleIndex(point);
+            if (idx < 0 && isCoarsePointer() && handlePoints.length) {
+                idx = handlePoints
+                    .map((h, i) => ({ i, d: Math.hypot(point.x - h.x, point.y - h.y) }))
+                    .sort((a, b) => a.d - b.d)[0]?.i ?? -1;
+            }
+            if (idx < 0) return;
+            activeHandleIndex = idx;
+            cropOverlayCanvas.setPointerCapture(event.pointerId);
+            cropOverlayCanvas.style.cursor = "grabbing";
             drawCropOverlay();
-            setCropStatus("Crop shape updated. Click Analyze Cropped Area.", "success");
-        }
-    });
+        });
 
-    cropOverlayCanvas.addEventListener("pointerleave", () => {
-        if (activeHandleIndex < 0) {
-            cropOverlayCanvas.style.cursor = "grab";
-        }
-    });
+        cropOverlayCanvas.addEventListener("pointermove", (event) => {
+            if (activeHandleIndex < 0) return;
+            const point = pointerToNormalizedPoint(event);
+            if (!point) return;
+            handlePoints[activeHandleIndex] = point;
+            drawCropOverlay();
+        });
 
-    resetCropShapeButton?.addEventListener("click", () => {
-        resetDefaultCropShape();
-        setCropStatus("Crop shape reset. Drag handles to adjust.");
-    });
+        cropOverlayCanvas.addEventListener("pointerup", (event) => {
+            if (activeHandleIndex >= 0) {
+                activeHandleIndex = -1;
+                cropOverlayCanvas.style.cursor = "grab";
+                cropOverlayCanvas.releasePointerCapture(event.pointerId);
+                drawCropOverlay();
+                setCropStatus("Crop shape updated. Click Analyze Cropped Area.", "success");
+            }
+        });
+
+        cropOverlayCanvas.addEventListener("pointerleave", () => {
+            if (activeHandleIndex < 0) {
+                cropOverlayCanvas.style.cursor = "grab";
+            }
+        });
+
+        resetCropShapeButton?.addEventListener("click", () => {
+            resetDefaultCropShape();
+            setCropStatus("Crop shape reset. Drag handles to adjust.");
+        });
+    }
 
     clearCropResultsButton?.addEventListener("click", () => {
         latestSegments = [];
@@ -1297,15 +1446,25 @@ if (cropSourceImage && cropOverlayCanvas) {
             advSegmentSummaryTableBody.innerHTML = '<tr><td colspan="6">No segment results yet.</td></tr>';
         }
         if (segmentVisualGrid) segmentVisualGrid.innerHTML = "";
-        if (croppedOriginalPreview) croppedOriginalPreview.removeAttribute("src");
+        syncOriginalSegmentPreviewSource();
         if (croppedHeatzonePreview) croppedHeatzonePreview.removeAttribute("src");
         setSegmentMetricValues(null);
         notifyParentSegmentStatus(null);
-        setCropStatus("Segment results cleared. Adjust crop and analyze again.");
+        setCropStatus(
+            segmentationOnlyMode
+                ? "Segmentation results cleared. Click Run Segmentation to analyze the whole image again."
+                : "Segment results cleared. Adjust crop and analyze again.",
+        );
         setCropViewMode("edit");
     });
 
     showCropToolButton?.addEventListener("click", () => {
+        if (segmentationOnlyMode) {
+            closeFocusModal();
+            setCropViewMode("edit");
+            setCropStatus("Segmentation is ready. Click Run Segmentation to analyze the whole image.");
+            return;
+        }
         if (isEmbeddedResultView()) {
             closeFocusModal();
             setCropStatus("Refreshing the current upload...");
@@ -1319,6 +1478,7 @@ if (cropSourceImage && cropOverlayCanvas) {
     runCroppedAnalysisButton?.addEventListener("click", runCroppedAnalysis);
 
     mobileCropPresets?.addEventListener("click", (event) => {
+        if (segmentationOnlyMode) return;
         const target = event.target;
         if (!(target instanceof HTMLButtonElement)) return;
         const preset = target.dataset.cropPreset;
@@ -1332,4 +1492,5 @@ if (cropSourceImage && cropOverlayCanvas) {
 });
 
 applyRecommendationChecksFromState();
+applyFieldStageToAdvancedPanel(null);
 setSegmentMetricValues(null);
