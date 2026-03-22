@@ -7,11 +7,12 @@ import base64
 import textwrap
 import shutil
 import logging
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from flask import Response
 from dotenv import load_dotenv
 from supabase import Client, create_client
@@ -64,6 +65,18 @@ def normalize_samesite(value: str | None, default: str) -> str:
     if raw == "lax":
         return "Lax"
     return default
+
+
+def resolve_runtime_root() -> Path:
+    configured = (os.getenv("AGRIVISION_RUNTIME_ROOT") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    if running_on_huggingface_space():
+        data_root = Path("/data")
+        if data_root.exists():
+            return data_root / "agrivision"
+        return Path(tempfile.gettempdir()) / "agrivision"
+    return BASE_DIR
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
@@ -123,8 +136,9 @@ SECRET_ADMIN_USER_ID = "__secret_admin__"
 SECRET_ADMIN_PRIVILEGE = "ADMIN"
 
 supabase: Client | None = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_KEY else None
-TEMP_ROOT = BASE_DIR / "tmp"
-CACHED_MEDIA_ROOT = BASE_DIR / "static" / "cache"
+RUNTIME_ROOT = resolve_runtime_root()
+TEMP_ROOT = RUNTIME_ROOT / "tmp"
+CACHED_MEDIA_ROOT = RUNTIME_ROOT / "cache"
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif", "bmp"}
 ANALYSIS_MAX_DIMENSION = 1600
 CROP_SEGMENT_MIN_MASK_COVERAGE = 0.20
@@ -148,7 +162,16 @@ def describe_supabase_auth_error(exc: Exception | None = None) -> str:
     return f"{guidance} Details: {detail}"
 
 
+def ensure_runtime_dir(path: Path, label: str) -> None:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        LOGGER.warning("Unable to create runtime %s directory at %s: %s", label, path, exc)
+
+
 def log_runtime_configuration() -> None:
+    ensure_runtime_dir(TEMP_ROOT, "temp")
+    ensure_runtime_dir(CACHED_MEDIA_ROOT, "cache")
     if running_on_huggingface_space():
         LOGGER.info(
             "Detected Hugging Face Space host=%s secure_cookie=%s samesite=%s partitioned=%s",
@@ -166,10 +189,11 @@ def log_runtime_configuration() -> None:
         )
         return
     LOGGER.info(
-        "Supabase client initialized with tables users=%s images=%s results=%s",
+        "Supabase client initialized with tables users=%s images=%s results=%s runtime_root=%s",
         SUPABASE_TABLE,
         SUPABASE_IMAGES_TABLE,
         SUPABASE_RESULTS_TABLE,
+        RUNTIME_ROOT,
     )
 
 
@@ -184,6 +208,13 @@ def require_auth():
     if not current_user():
         return False
     return True
+
+
+@app.get("/runtime-cache/<path:relative_path>")
+def runtime_cached_media(relative_path: str):
+    if not require_auth():
+        return Response("Unauthorized", status=401)
+    return send_from_directory(CACHED_MEDIA_ROOT, relative_path)
 
 
 def secret_admin_session() -> dict[str, str]:
@@ -254,7 +285,7 @@ def ensure_cached_media_dir(user_id: str, image_id: str) -> Path:
 
 
 def _cached_media_url(path: Path) -> str:
-    return f"/{path.relative_to(BASE_DIR).as_posix()}"
+    return f"/runtime-cache/{path.relative_to(CACHED_MEDIA_ROOT).as_posix()}"
 
 
 def _cached_media_entry(user_id: str, image_id: str, filename: str) -> tuple[Path, str]:
@@ -264,19 +295,28 @@ def _cached_media_entry(user_id: str, image_id: str, filename: str) -> tuple[Pat
 
 
 def cache_result_media(user_id: str, image_id: str, original_path: Path, heatzone_path: Path) -> dict[str, str]:
-    original_suffix = original_path.suffix.lower() or ".jpg"
-    cached_original_path, original_url = _cached_media_entry(user_id, image_id, f"original{original_suffix}")
-    cached_heatzone_path, heatzone_url = _cached_media_entry(user_id, image_id, "heatzone.png")
+    try:
+        original_suffix = original_path.suffix.lower() or ".jpg"
+        cached_original_path, original_url = _cached_media_entry(user_id, image_id, f"original{original_suffix}")
+        cached_heatzone_path, heatzone_url = _cached_media_entry(user_id, image_id, "heatzone.png")
 
-    shutil.copyfile(original_path, cached_original_path)
-    shutil.copyfile(heatzone_path, cached_heatzone_path)
+        shutil.copyfile(original_path, cached_original_path)
+        shutil.copyfile(heatzone_path, cached_heatzone_path)
 
-    return {
-        "original_path": str(cached_original_path),
-        "original_url": original_url,
-        "heatzone_path": str(cached_heatzone_path),
-        "heatzone_url": heatzone_url,
-    }
+        return {
+            "original_path": str(cached_original_path),
+            "original_url": original_url,
+            "heatzone_path": str(cached_heatzone_path),
+            "heatzone_url": heatzone_url,
+        }
+    except OSError as exc:
+        LOGGER.warning("Local cached media write failed for result %s: %s", image_id, exc)
+        return {
+            "original_path": "",
+            "original_url": "",
+            "heatzone_path": "",
+            "heatzone_url": "",
+        }
 
 
 def upload_file_to_bucket(local_path: Path, bucket: str, object_path: str) -> tuple[bool, str]:
@@ -2881,8 +2921,16 @@ def rerun_result(image_id: str):
             err_heat,
         )
         entry["heatzone_storage_path"] = heatzone_object_path
-        entry["original_url"] = cached_media["original_url"]
-        entry["heatzone_url"] = cached_media["heatzone_url"]
+        entry["original_url"] = cached_media["original_url"] or signed_or_local_url(
+            SUPABASE_BUCKET_ORIGINAL,
+            entry.get("original_storage_path"),
+            "",
+        )
+        entry["heatzone_url"] = cached_media["heatzone_url"] or signed_or_local_url(
+            SUPABASE_BUCKET_HEATZONE,
+            heatzone_object_path,
+            "",
+        )
 
         report_object_path = f"{user_id}/{image_id}.json"
         ok_json, err_json = upload_json_to_bucket(SUPABASE_BUCKET_REPORTS, report_object_path, processed["analysis"])
@@ -3176,8 +3224,16 @@ def upload_image():
         ok_heat, err_heat = upload_file_to_bucket(local_heatzone_path, SUPABASE_BUCKET_HEATZONE, heatzone_object_path)
         require_bucket_upload(ok_heat, "heatzone image", err_heat)
         entry["heatzone_storage_path"] = heatzone_object_path
-        entry["original_url"] = cached_media["original_url"]
-        entry["heatzone_url"] = cached_media["heatzone_url"]
+        entry["original_url"] = cached_media["original_url"] or signed_or_local_url(
+            SUPABASE_BUCKET_ORIGINAL,
+            original_object_path,
+            "",
+        )
+        entry["heatzone_url"] = cached_media["heatzone_url"] or signed_or_local_url(
+            SUPABASE_BUCKET_HEATZONE,
+            heatzone_object_path,
+            "",
+        )
 
         ok_report, err_report = upload_json_to_bucket(SUPABASE_BUCKET_REPORTS, report_object_path, processed["analysis"])
         require_bucket_upload(ok_report, "report json", err_report)

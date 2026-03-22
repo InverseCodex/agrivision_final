@@ -70,6 +70,7 @@ Required variables:
 - `AGRIVISION_HEALTH_MODEL_PATH`
 - `AGRIVISION_STAGE_MODEL_PATH`
 - `AGRIVISION_MODEL_DEVICE` (optional)
+- `AGRIVISION_RUNTIME_ROOT` (optional override for writable temp/cache storage)
 
 Recommended for Spaces:
 
@@ -92,6 +93,7 @@ Then open `http://127.0.0.1:5000`.
 
 - The app auto-detects Hugging Face Spaces and switches Flask session cookies to `SameSite=None` with secure cookies so iframe-based logins have the best chance of working.
 - If you override cookie settings manually, keep `SESSION_COOKIE_SECURE=true` whenever `SESSION_COOKIE_SAMESITE=None`.
+- The app now stores temporary downloads and cached preview media in a writable runtime directory. On Spaces it prefers `/data/agrivision` when available, then falls back to the system temp directory. You can override this with `AGRIVISION_RUNTIME_ROOT`.
 - Runtime startup logs now warn when Supabase credentials are missing or when the default Flask secret is still in use.
 
 Inference smoke check:
