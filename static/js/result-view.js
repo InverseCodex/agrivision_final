@@ -216,15 +216,6 @@ function formatPhenologicalStageLabel(source = null) {
     if (growthStageLabel) {
         return growthStageLabel;
     }
-    const maturityLabel = String(stageSource.maturity_label || "").trim().toLowerCase();
-    const healthBand = String(stageSource.health_band || "").trim().toLowerCase();
-    const maturityProbability = Number(stageSource.maturity_probability ?? stageSource.growth_stage_probability ?? 0);
-    if (maturityLabel === "mature" || healthBand === "mature" || maturityProbability >= 0.5) {
-        return "Likely mature stage";
-    }
-    if (maturityProbability > 0) {
-        return "Not yet mature stage";
-    }
     return "Stage not available";
 }
 

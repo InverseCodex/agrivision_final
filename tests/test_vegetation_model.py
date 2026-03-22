@@ -17,6 +17,7 @@ from app import (
     _is_full_frame_quad,
     _merge_field_stage_into_model_result,
     _masked_rgb_metrics,
+    _phenological_stage_label,
     _trained_damage_model_result,
     _weighted_health_score,
     analyze_freeform_cropped_segments,
@@ -166,6 +167,19 @@ class VegetationDamageModelTests(unittest.TestCase):
         self.assertEqual(merged["growth_stage_label"], "Tasseling")
         self.assertAlmostEqual(merged["growth_stage_probability"], 0.91, places=4)
         self.assertEqual(merged["growth_stage_feature_names"], ["gli", "vari"])
+
+    def test_phenological_stage_label_does_not_invent_binary_stage_text(self) -> None:
+        self.assertEqual(
+            _phenological_stage_label(
+                {
+                    "growth_stage_label": "",
+                    "maturity_label": "not_mature",
+                    "maturity_probability": 0.38,
+                    "health_band": "healthy",
+                }
+            ),
+            "Stage not available",
+        )
 
     def test_default_full_selection_points_cover_entire_image(self) -> None:
         self.assertEqual(

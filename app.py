@@ -2073,13 +2073,6 @@ def _phenological_stage_label(model_result: dict[str, Any]) -> str:
     growth_stage_label = str(model_result.get("growth_stage_label", "") or "").strip()
     if growth_stage_label:
         return growth_stage_label
-    health_band = str(model_result.get("health_band", "")).lower()
-    maturity_label = str(model_result.get("maturity_label", "")).lower()
-    maturity_probability = float(model_result.get("maturity_probability", 0.0) or 0.0)
-    if health_band == "mature" or maturity_label in {"mature", "healthy_mature"} or maturity_probability >= 0.5:
-        return "Likely mature stage"
-    if maturity_probability > 0:
-        return "Not yet mature stage"
     return "Stage not available"
 
 
