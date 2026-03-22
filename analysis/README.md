@@ -1,35 +1,27 @@
 # Vegetation Analysis Module
 
-This module provides a backend-only farm analysis workflow using vegetation indices.
+This module now runs the production thesis checkpoints on the server side.
 
 ## What It Does
 
-- Supports RGB-only drone input (DJI Mini 4 Pro) using proxy indices:
-  - `VARI`, `GLI`, `NGRDI`, `ExG`
-- Also keeps a multispectral path (`NDVI`, `EVI`, `SAVI`, `GNDVI`, `NDRE`) if needed later.
-- Uses an AI-style judge (`VegetationJudgeModel`) to produce:
-  - health score
-  - health band (`healthy`, `mature`, `watch`, `stressed`, `critical`)
-  - confidence
-  - key findings
-- Converts model output into simple farmer-friendly language and action steps.
+- Loads the final health-status checkpoint:
+  - `models/health-status/rrl_health_mobilenet_rebuilt_best.pt`
+- Loads the final growth-stage checkpoint:
+  - `models/growth-stage/rrl_stage_mobilenet_realistic_best.pt`
+- Rebuilds the hybrid MobileNetV3-Large + tabular classifier used in the thesis training scripts.
+- Applies ImageNet normalization and the checkpoint-selected tabular features at inference time.
+- Supports full-image analysis plus masked crop and segment analysis used by the website.
 
-## Quick Run
+## Runtime Notes
+
+- Model paths can be overridden with:
+  - `AGRIVISION_HEALTH_MODEL_PATH`
+  - `AGRIVISION_STAGE_MODEL_PATH`
+  - `AGRIVISION_MODEL_DEVICE`
+- The repo keeps copies of the production checkpoints in `models/` so local runs do not depend on the original thesis folder.
+
+## Quick Verification
 
 ```powershell
-.venv\Scripts\python.exe scripts\run_field_analysis_demo.py
+.venv\Scripts\python.exe scripts\verify_ml_inference.py
 ```
-
-## Integration Idea (Backend)
-
-Use this for DJI Mini 4 Pro RGB-based analysis:
-
-```python
-from analysis import RGBSnapshot, FieldContext, interpret_field_from_rgb
-
-snapshot = RGBSnapshot(mean_red=108, mean_green=132, mean_blue=92, green_coverage=0.48)
-context = FieldContext(crop_name="Rice", growth_stage="vegetative", rainfall_last_7d_mm=8, avg_temp_c=33)
-report = interpret_field_from_rgb(snapshot, context)
-```
-
-Then persist `report` to your results table and show it in UI later.

@@ -168,7 +168,7 @@
             {% if analysis %}
                 <div class="feature-grid">
                     <div class="feature-card">
-                        <h3>Vegetation Damage Prediction</h3>
+                        <h3>Health-Status Prediction</h3>
                         <p>{{ analysis.report.model_result.health_band|replace('_', ' ')|upper if analysis.report and analysis.report.model_result else '-' }}</p>
                     </div>
                     <div class="feature-card">
@@ -180,10 +180,16 @@
                         <p id="adv-prediction-probability">{{ ((analysis.report.model_result.probability or 0) * 100)|round(2) if analysis.report and analysis.report.model_result else '-' }}%</p>
                     </div>
                     <div class="feature-card">
-                        <h3>Model Features Used</h3>
-                        <p>TGI: {{ analysis.report.model_result.feature_values.tgi if analysis.report and analysis.report.model_result and analysis.report.model_result.feature_values is defined else '-' }}</p>
-                        <p>Std G: {{ analysis.report.model_result.feature_values.std_g if analysis.report and analysis.report.model_result and analysis.report.model_result.feature_values is defined else '-' }}</p>
-                        <p>Uniformity: {{ analysis.report.model_result.feature_values.stand_uniformity_score if analysis.report and analysis.report.model_result and analysis.report.model_result.feature_values is defined else '-' }}</p>
+                        <h3>Health Model Features</h3>
+                        <div id="adv-health-feature-summary">
+                            {% if analysis.report and analysis.report.model_result and analysis.report.model_result.feature_names is defined and analysis.report.model_result.feature_values is defined %}
+                                {% for name in analysis.report.model_result.feature_names %}
+                                <p>{{ name|replace('_', ' ')|upper }}: {{ analysis.report.model_result.feature_values[name] if name in analysis.report.model_result.feature_values else '-' }}</p>
+                                {% endfor %}
+                            {% else %}
+                                <p>-</p>
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
                 <div class="feature-grid">
@@ -196,18 +202,30 @@
                         <p id="adv-unhealthy-probability">{{ ((analysis.report.model_result.unhealthy_damaged_probability or 0) * 100)|round(2) if analysis.report and analysis.report.model_result else '-' }}%</p>
                     </div>
                     <div class="feature-card">
-                        <h3>Maturity Result</h3>
-                        <p id="adv-maturity-label">{{ analysis.report.model_result.maturity_label|replace('_', ' ')|upper if analysis.report and analysis.report.model_result else '-' }}</p>
+                        <h3>Growth Stage</h3>
+                        <p id="adv-maturity-label">{{ analysis.report.model_result.growth_stage_label|replace('_', ' ')|upper if analysis.report and analysis.report.model_result and analysis.report.model_result.growth_stage_label is defined else '-' }}</p>
                     </div>
                     <div class="feature-card">
-                        <h3>Maturity Probability</h3>
-                        <p id="adv-maturity-probability">{{ ((analysis.report.model_result.maturity_probability or 0) * 100)|round(2) if analysis.report and analysis.report.model_result else '-' }}%</p>
+                        <h3>Growth Stage Probability</h3>
+                        <p id="adv-maturity-probability">{{ ((analysis.report.model_result.growth_stage_probability or 0) * 100)|round(2) if analysis.report and analysis.report.model_result and analysis.report.model_result.growth_stage_probability is defined else '-' }}%</p>
                     </div>
                 </div>
                 <div class="feature-grid">
                     <div class="feature-card">
                         <h3>Decision Threshold</h3>
                         <p id="adv-threshold">{{ analysis.report.model_result.threshold if analysis.report and analysis.report.model_result else '-' }}</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Stage Model Features</h3>
+                        <div id="adv-stage-feature-summary">
+                            {% if analysis.report and analysis.report.model_result and analysis.report.model_result.growth_stage_feature_names is defined and analysis.report.model_result.growth_stage_feature_values is defined %}
+                                {% for name in analysis.report.model_result.growth_stage_feature_names %}
+                                <p>{{ name|replace('_', ' ')|upper }}: {{ analysis.report.model_result.growth_stage_feature_values[name] if name in analysis.report.model_result.growth_stage_feature_values else '-' }}</p>
+                                {% endfor %}
+                            {% else %}
+                                <p>-</p>
+                            {% endif %}
+                        </div>
                     </div>
                     <div class="feature-card">
                         <h3>Model Findings</h3>

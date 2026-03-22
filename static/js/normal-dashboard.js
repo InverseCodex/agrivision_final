@@ -545,6 +545,18 @@
             setEmbeddedAdvancedMode(Boolean(data.open));
             return;
         }
+        if (data.type === "agrivision:segment-status") {
+            const messageResultId = String(data.resultId || "");
+            if (!currentResult?.image_id || currentResult.image_id !== messageResultId) {
+                return;
+            }
+            if (Array.isArray(data.status) && data.status.length) {
+                renderStatus({ status: data.status });
+            } else {
+                renderStatus(currentResult);
+            }
+            return;
+        }
         if (data.type === "agrivision:refresh-upload-result") {
             refreshCurrentUploadResult(String(data.resultId || ""));
         }

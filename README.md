@@ -10,13 +10,13 @@ fullWidth: true
 
 # AgriVision Thesis Website
 
-AgriVision is a Flask-based web application for thesis demonstration and evaluation. It allows a user to upload an RGB drone or field image, generate a heatzone visualization, compute vegetation-related proxy metrics, review segment-level findings, save result personalization, and export a PDF report for presentation or documentation.
+AgriVision is a Flask-based web application for thesis demonstration and evaluation. It allows a user to upload an RGB drone or field image, run the final thesis health-status and growth-stage ML checkpoints on the server, generate a heatzone visualization, review segment-level findings, save result personalization, and export a PDF report for presentation or documentation.
 
 ## What the system does
 
 - Authenticates users through Supabase-backed login and registration.
 - Accepts image uploads with file-type and size validation.
-- Runs RGB-based vegetation analysis and produces a heatzone image.
+- Runs the final hybrid MobileNetV3-Large health-status and growth-stage models on the server and produces a heatzone image.
 - Stores original images, generated outputs, and JSON analysis data in Supabase storage/tables.
 - Shows a result gallery with filtering, sorting, deletion, and PDF export.
 - Provides a detailed result page with crop-area rerun analysis, segment recommendations, saved notes, and advanced RGB metrics.
@@ -26,7 +26,7 @@ AgriVision is a Flask-based web application for thesis demonstration and evaluat
 
 - Backend: Flask
 - Storage and tables: Supabase
-- Image processing: Pillow, OpenCV, NumPy, Matplotlib
+- Image processing and inference: Pillow, OpenCV, NumPy, Matplotlib, PyTorch, TorchVision
 - Frontend: HTML, CSS, vanilla JavaScript
 - Deployment-ready server dependency: Gunicorn
 
@@ -43,7 +43,8 @@ AgriVision is a Flask-based web application for thesis demonstration and evaluat
 ## Project structure
 
 - `app.py`: Main Flask application, routes, upload flow, Supabase integration, PDF export, rerun logic
-- `analysis/`: RGB interpretation and vegetation proxy logic
+- `analysis/`: model loading, RGB feature extraction, and inference helpers
+- `models/`: production thesis checkpoints and their report metadata
 - `templates/`: Flask HTML templates
 - `static/`: CSS and JavaScript assets
 - `tmp/`: Temporary working directory for image processing
@@ -64,6 +65,9 @@ Required variables:
 - `SUPABASE_BUCKET_ORIGINAL`
 - `SUPABASE_BUCKET_HEATZONE`
 - `SUPABASE_BUCKET_REPORTS`
+- `AGRIVISION_HEALTH_MODEL_PATH`
+- `AGRIVISION_STAGE_MODEL_PATH`
+- `AGRIVISION_MODEL_DEVICE` (optional)
 
 ## Local run
 
@@ -76,6 +80,12 @@ python app.py
 
 Then open `http://127.0.0.1:5000`.
 
+Inference smoke check:
+
+```powershell
+.venv\Scripts\python.exe scripts\verify_ml_inference.py
+```
+
 ## Defense talking points
 
 - The system is not just a static interface; it includes authentication, storage integration, analysis generation, saved result history, and report export.
@@ -85,17 +95,18 @@ Then open `http://127.0.0.1:5000`.
 
 ## Current limitations
 
-- Analysis is based on RGB-derived proxy metrics, so it should be presented as a practical field-support tool rather than a laboratory-grade diagnostic system.
+- The primary health-status and growth-stage outputs now come from the final thesis hybrid MobileNetV3-Large checkpoints, but the surrounding vegetation metrics and heatzone remain RGB-derived support signals.
 - Accuracy depends on image quality, lighting, altitude consistency, and scene composition.
 - Live storage and authentication depend on valid Supabase configuration.
-- There is not yet a formal automated test suite; smoke validation is currently done through route and compile checks.
+- Automated verification is still lightweight and currently focuses on inference smoke checks and targeted unit tests.
 
 ## Verification completed
 
 The current project was checked with:
 
-- Python compile validation for `app.py` and `analysis/model.py`
-- Flask route smoke checks for `/`, `/tutorial`, `/results`, `/results/<image_id>`, and `/results/<image_id>/report.pdf`
+- `python -m py_compile app.py analysis\vegetation_damage_model.py analysis\__init__.py scripts\verify_ml_inference.py tests\test_vegetation_model.py`
+- `.venv\Scripts\python.exe -m unittest tests.test_vegetation_model`
+- `.venv\Scripts\python.exe scripts\verify_ml_inference.py`
 
 ## Recommended presentation framing
 

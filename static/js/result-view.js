@@ -70,6 +70,8 @@ const advBiomass = document.getElementById("adv-biomass");
 const advUniformity = document.getElementById("adv-uniformity");
 const advYieldPotential = document.getElementById("adv-yield-potential");
 const advPredictionProbability = document.getElementById("adv-prediction-probability");
+const advHealthFeatureSummary = document.getElementById("adv-health-feature-summary");
+const advStageFeatureSummary = document.getElementById("adv-stage-feature-summary");
 const advHealthyProbability = document.getElementById("adv-healthy-probability");
 const advUnhealthyProbability = document.getElementById("adv-unhealthy-probability");
 const advMaturityLabel = document.getElementById("adv-maturity-label");
@@ -141,6 +143,100 @@ function requestEmbeddedResultRefresh() {
     window.location.reload();
 }
 
+function formatStatusMetricValue(value, suffix = "") {
+    if (value === null || value === undefined || value === "") {
+        return "-";
+    }
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) {
+            return "-";
+        }
+        const numeric = Number(trimmed);
+        if (!Number.isFinite(numeric)) {
+            return trimmed;
+        }
+        value = numeric;
+    }
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+        return String(value);
+    }
+    const rounded = Math.round(numeric * 100) / 100;
+    if (Number.isInteger(rounded)) {
+        return `${rounded}${suffix}`;
+    }
+    return `${rounded.toFixed(2).replace(/\.?0+$/, "")}${suffix}`;
+}
+
+function formatHealthBandLabel(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (normalized === "healthy") return "Healthy";
+    if (normalized === "unhealthy_damaged") return "Needs Attention";
+    if (normalized === "mature") return "Likely Mature";
+    if (!normalized) return "-";
+    return normalized
+        .split("_")
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+}
+
+function formatPhenologicalStageLabel(segment) {
+    if (!segment || segment.empty) {
+        return "Not scored";
+    }
+    const growthStageLabel = String(segment.growth_stage_label || "").trim();
+    if (growthStageLabel) {
+        return growthStageLabel;
+    }
+    const healthBand = String(segment.health_band || "").trim().toLowerCase();
+    const maturityProbability = Number(segment.maturity_probability ?? segment.growth_stage_probability ?? 0);
+    if (healthBand === "mature" || maturityProbability >= 0.5) {
+        return "Likely mature stage";
+    }
+    if (maturityProbability > 0) {
+        return "Not yet mature stage";
+    }
+    return "Stage not available";
+}
+
+function buildSegmentStatusItems(segment) {
+    if (!segment) {
+        return null;
+    }
+    if (segment.empty) {
+        return [
+            { label: "Phenological Stage", value: "Not scored" },
+            { label: "Healthiness", value: "No usable crop" },
+            { label: "Canopy Cover", value: "-" },
+            { label: "Vigor", value: "-" },
+            { label: "Stand Uniformity", value: "-" },
+            { label: "Green Coverage", value: "-" },
+        ];
+    }
+    return [
+        { label: "Phenological Stage", value: formatPhenologicalStageLabel(segment) },
+        { label: "Healthiness", value: formatHealthBandLabel(segment.health_band) },
+        { label: "Canopy Cover", value: formatStatusMetricValue(segment.canopy_cover_pct, "%") },
+        { label: "Vigor", value: formatStatusMetricValue(segment.vegetation_vigor_score, "/100") },
+        { label: "Stand Uniformity", value: formatStatusMetricValue(segment.stand_uniformity_score, "/100") },
+        { label: "Green Coverage", value: formatStatusMetricValue(segment.green_coverage_pct, "%") },
+    ];
+}
+
+function notifyParentSegmentStatus(segment = null) {
+    if (!isEmbeddedResultView() || window.parent === window) return;
+    window.parent.postMessage(
+        {
+            type: "agrivision:segment-status",
+            resultId,
+            status: buildSegmentStatusItems(segment),
+            segmentId: segment?.segment_id || "",
+        },
+        window.location.origin,
+    );
+}
+
 function isCoarsePointer() {
     return window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 780;
 }
@@ -203,6 +299,28 @@ function formatScore(value, suffix = "") {
         return "-";
     }
     return `${value}${suffix}`;
+}
+
+function formatFeatureSummaryBlock(featureNames, featureValues) {
+    const names = Array.isArray(featureNames) ? featureNames : [];
+    const values = featureValues && typeof featureValues === "object" ? featureValues : {};
+    if (!names.length) {
+        return "<p>-</p>";
+    }
+    return names.map((name) => {
+        const label = String(name || "").replaceAll("_", " ").toUpperCase();
+        const value = values[name] ?? "-";
+        return `<p>${label}: ${value}</p>`;
+    }).join("");
+}
+
+function formatFeatureSummaryInline(featureNames, featureValues) {
+    const names = Array.isArray(featureNames) ? featureNames : [];
+    const values = featureValues && typeof featureValues === "object" ? featureValues : {};
+    if (!names.length) {
+        return "-";
+    }
+    return names.map((name) => `${String(name || "").replaceAll("_", " ").toUpperCase()}: ${values[name] ?? "-"}`).join(", ");
 }
 
 function classifySegmentMetric(segment, key) {
@@ -386,15 +504,18 @@ function setAdvancedPanelFromSegment(segment) {
     if (advBiomass) advBiomass.textContent = `Biomass: ${segment.relative_biomass_score ?? "-"}`;
     if (advUniformity) advUniformity.textContent = `Uniformity: ${segment.stand_uniformity_score ?? "-"}`;
     if (advYieldPotential) advYieldPotential.textContent = `${segment.relative_yield_potential_pct ?? "-"}%`;
-    if (advPredictionProbability) advPredictionProbability.textContent = `${Number(segment.prediction_probability ?? 0) * 100}%`;
-    if (advHealthyProbability) advHealthyProbability.textContent = `${Number(segment.healthy_probability ?? 0) * 100}%`;
-    if (advUnhealthyProbability) advUnhealthyProbability.textContent = `${Number(segment.unhealthy_damaged_probability ?? 0) * 100}%`;
-    if (advMaturityLabel) advMaturityLabel.textContent = String(segment.maturity_label || "not_mature").replaceAll("_", " ").toUpperCase();
-    if (advMaturityProbability) advMaturityProbability.textContent = `${Number(segment.maturity_probability ?? 0) * 100}%`;
-    if (advThreshold) advThreshold.textContent = "0.5";
+    if (advPredictionProbability) advPredictionProbability.textContent = formatPercentFromProbability(segment.prediction_probability);
+    if (advHealthFeatureSummary) advHealthFeatureSummary.innerHTML = formatFeatureSummaryBlock(segment.health_feature_names, segment.health_feature_values);
+    if (advStageFeatureSummary) advStageFeatureSummary.innerHTML = formatFeatureSummaryBlock(segment.stage_feature_names, segment.stage_feature_values);
+    if (advHealthyProbability) advHealthyProbability.textContent = formatPercentFromProbability(segment.healthy_probability);
+    if (advUnhealthyProbability) advUnhealthyProbability.textContent = formatPercentFromProbability(segment.unhealthy_damaged_probability);
+    if (advMaturityLabel) advMaturityLabel.textContent = String(segment.growth_stage_label || "-").replaceAll("_", " ").toUpperCase();
+    if (advMaturityProbability) advMaturityProbability.textContent = formatPercentFromProbability(segment.growth_stage_probability);
+    if (advThreshold) advThreshold.textContent = formatScore(segment.threshold ?? 0.5);
     if (advModelFindings) {
         const label = String(segment.health_band || "").replaceAll("_", " ").toUpperCase();
-        advModelFindings.textContent = `Selected segment prediction is likely ${label || "UNKNOWN"} with TGI ${segment.ml_tgi ?? "-"}, std_g ${segment.ml_std_g ?? "-"}, and stand uniformity ${segment.ml_stand_uniformity_score ?? "-"}.`;
+        const stage = String(segment.growth_stage_label || "unknown stage").replaceAll("_", " ");
+        advModelFindings.textContent = `Selected segment prediction is likely ${label || "UNKNOWN"} while the stage model points to ${stage}.`;
     }
 }
 
@@ -544,16 +665,17 @@ function renderFocusModeDetails(segment) {
         ["Prediction confidence", formatPercentFromProbability(segment.confidence)],
         ["Healthy probability", formatPercentFromProbability(segment.healthy_probability)],
         ["Unhealthy/damaged probability", formatPercentFromProbability(segment.unhealthy_damaged_probability)],
-        ["Maturity probability", formatPercentFromProbability(segment.maturity_probability)],
+        ["Growth stage", String(segment.growth_stage_label || "-")],
+        ["Growth-stage probability", formatPercentFromProbability(segment.growth_stage_probability)],
+        ["Mature-stage probability", formatPercentFromProbability(segment.maturity_probability)],
         ["Green coverage", formatScore(segment.green_coverage_pct, "%")],
         ["Stress zone", formatScore(segment.estimated_stress_zone_pct, "%")],
         ["Vigor", formatScore(segment.vegetation_vigor_score)],
         ["Canopy cover", formatScore(segment.canopy_cover_pct, "%")],
         ["Biomass", formatScore(segment.relative_biomass_score)],
         ["Uniformity", formatScore(segment.stand_uniformity_score)],
-        ["TGI", formatScore(segment.ml_tgi ?? segment.tgi)],
-        ["Std G", formatScore(segment.ml_std_g)],
-        ["ML uniformity", formatScore(segment.ml_stand_uniformity_score)],
+        ["Health features", formatFeatureSummaryInline(segment.health_feature_names, segment.health_feature_values)],
+        ["Stage features", formatFeatureSummaryInline(segment.stage_feature_names, segment.stage_feature_values)],
         ["Management zone", segment.management_zone || "-"],
         ["Management action", segment.management_action || "-"],
     ];
@@ -564,7 +686,7 @@ function renderFocusModeDetails(segment) {
     const recommendations = [
         segment.recommendation,
         segment.possible_issue,
-        `Model finding: likely ${String(segment.health_band || "").replaceAll("_", " ")} with confidence ${formatPercentFromProbability(segment.confidence)}.`,
+        `Model finding: likely ${String(segment.health_band || "").replaceAll("_", " ")} with confidence ${formatPercentFromProbability(segment.confidence)} while the stage model points to ${segment.growth_stage_label || "an unknown stage"}.`,
         segment.unhealthy_damaged_probability >= 0.5
             ? "Action note: verify the flagged area on-site before applying targeted treatment."
             : "Action note: maintain monitoring and compare this segment with surrounding cells on the next scan.",
@@ -777,6 +899,9 @@ function renderSegmentButtons(segments, grid) {
     }
 
     const segmentMap = new Map(segments.map((segment) => [segment.segment_id, segment]));
+    if (activeSegmentId && !segmentMap.has(activeSegmentId)) {
+        activeSegmentId = "";
+    }
     const selectSegment = (segmentId) => {
         const segment = segmentMap.get(segmentId);
         if (!segment) return;
@@ -791,6 +916,7 @@ function renderSegmentButtons(segments, grid) {
 
         setSegmentMetricValues(segment);
         setAdvancedPanelFromSegment(segment);
+        notifyParentSegmentStatus(segment);
         if (focusModeEnabled) {
             openFocusModal();
         }
@@ -893,6 +1019,7 @@ function renderSegmentButtons(segments, grid) {
         selectSegment(activeSegmentId);
     } else {
         setSegmentMetricValues(null);
+        notifyParentSegmentStatus(null);
     }
     syncSegmentVisualGridToImage();
 }
@@ -1173,6 +1300,7 @@ if (cropSourceImage && cropOverlayCanvas) {
         if (croppedOriginalPreview) croppedOriginalPreview.removeAttribute("src");
         if (croppedHeatzonePreview) croppedHeatzonePreview.removeAttribute("src");
         setSegmentMetricValues(null);
+        notifyParentSegmentStatus(null);
         setCropStatus("Segment results cleared. Adjust crop and analyze again.");
         setCropViewMode("edit");
     });

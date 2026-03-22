@@ -6,7 +6,6 @@ import io
 import base64
 import textwrap
 import shutil
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,22 +20,45 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from analysis import (
-    FieldContext,
-    RGBSnapshot,
-    interpret_field_from_rgb,
-    predict_maturity_from_path,
-    predict_maturity_from_rgb,
+    configure_model_paths,
+    predict_growth_stage_from_path,
+    predict_growth_stage_from_rgb,
     predict_vegetation_damage_from_path,
     predict_vegetation_damage_from_rgb,
-    rgb_to_vegetation_proxies,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
+SERVER_MODELS_DIR = BASE_DIR / "models"
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "replace-this-in-production")
 app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024  # 12 MB upload limit for stability on small instances.
+app.config["HEALTH_MODEL_PATH"] = os.getenv(
+    "AGRIVISION_HEALTH_MODEL_PATH",
+    str(SERVER_MODELS_DIR / "health-status" / "rrl_health_mobilenet_rebuilt_best.pt"),
+)
+app.config["HEALTH_MODEL_REPORT_PATH"] = os.getenv(
+    "AGRIVISION_HEALTH_REPORT_PATH",
+    str(SERVER_MODELS_DIR / "health-status" / "rrl_health_mobilenet_rebuilt_report.json"),
+)
+app.config["STAGE_MODEL_PATH"] = os.getenv(
+    "AGRIVISION_STAGE_MODEL_PATH",
+    str(SERVER_MODELS_DIR / "growth-stage" / "rrl_stage_mobilenet_realistic_best.pt"),
+)
+app.config["STAGE_MODEL_REPORT_PATH"] = os.getenv(
+    "AGRIVISION_STAGE_REPORT_PATH",
+    str(SERVER_MODELS_DIR / "growth-stage" / "Session012_Result_Summary.json"),
+)
+app.config["MODEL_DEVICE"] = os.getenv("AGRIVISION_MODEL_DEVICE", "").strip()
+
+configure_model_paths(
+    health_model_path=app.config["HEALTH_MODEL_PATH"],
+    health_report_path=app.config["HEALTH_MODEL_REPORT_PATH"],
+    stage_model_path=app.config["STAGE_MODEL_PATH"],
+    stage_report_path=app.config["STAGE_MODEL_REPORT_PATH"],
+    device=app.config["MODEL_DEVICE"],
+)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://sqjowujqqtljmwuizgqv.supabase.co")
 SUPABASE_KEY = (
@@ -636,23 +658,9 @@ def run_rgb_analysis(original_path: Path, user_id: str, image_id: str) -> dict[s
             mean_b = float(b.mean())
             green_coverage = float(_green_dominant_mask(r, g, b, camera_model).mean())
             dry_coverage = float(_dry_canopy_mask(r, g, b).mean())
-
-    snapshot = RGBSnapshot(
-        mean_red=mean_r,
-        mean_green=mean_g,
-        mean_blue=mean_b,
-        green_coverage=green_coverage,
-        dry_coverage=dry_coverage,
-        camera_model=camera_model,
-    )
-    context = FieldContext(crop_name="Farm Crop", growth_stage="unknown", rainfall_last_7d_mm=0.0, avg_temp_c=0.0)
-    report = interpret_field_from_rgb(snapshot, context)
     trained_prediction = predict_vegetation_damage_from_path(original_path)
-    maturity_prediction = predict_maturity_from_path(original_path)
-    summary, explanation = _trained_damage_summary(trained_prediction, maturity_prediction)
-    report_payload = asdict(report)
-    report_payload["one_line_summary"] = summary
-    report_payload["simple_explanation"] = explanation
+    stage_prediction = predict_growth_stage_from_path(original_path)
+    summary, explanation = _trained_damage_summary(trained_prediction, stage_prediction)
     extended_indices = _compute_extended_rgb_indices(mean_r, mean_g, mean_b, green_coverage)
 
     temp_dir = ensure_temp_dir(user_id)
@@ -665,20 +673,25 @@ def run_rgb_analysis(original_path: Path, user_id: str, image_id: str) -> dict[s
         canopy_score=round(extended_indices["canopy_cover_pct"], 2),
         uniformity_score=round(extended_indices["stand_uniformity_score"], 2),
     )
-    report_payload["model_result"] = _trained_damage_model_result(
+    model_result = _trained_damage_model_result(
         trained_prediction,
         health_score=weighted_health_score,
-        maturity_prediction=maturity_prediction,
+        stage_prediction=stage_prediction,
     )
-    report_payload["recommendations"] = _trained_damage_recommendations(
-        trained_prediction,
-        report_payload["model_result"].get("feature_values"),
-        maturity_prediction=maturity_prediction,
-    )
+    report_payload = {
+        "one_line_summary": summary,
+        "simple_explanation": explanation,
+        "model_result": model_result,
+        "recommendations": _trained_damage_recommendations(
+            trained_prediction,
+            model_result.get("feature_values"),
+            stage_prediction=stage_prediction,
+        ),
+    }
     zone = _management_zone_recommendation(extended_indices, stress_ratio=stress_ratio)
 
     analysis_payload = {
-        "analysis_version": "rgb-proxy-v2-dji-mini4pro",
+        "analysis_version": "dual-hybrid-mobilenet-v1-dji-mini4pro",
         "image_id": image_id,
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "input": {
@@ -713,7 +726,15 @@ def run_rgb_analysis(original_path: Path, user_id: str, image_id: str) -> dict[s
             "stand_uniformity_score": round(extended_indices["stand_uniformity_score"], 2),
             "relative_yield_potential_pct": round(extended_indices["relative_yield_potential_pct"], 2),
         },
-        "vegetation_damage_model": report_payload["model_result"],
+        "vegetation_damage_model": model_result,
+        "growth_stage_model": {
+            "growth_stage_label": model_result.get("growth_stage_label", ""),
+            "growth_stage_probability": model_result.get("growth_stage_probability", 0.0),
+            "growth_stage_probabilities": model_result.get("growth_stage_probabilities", {}),
+            "maturity_probability": model_result.get("maturity_probability", 0.0),
+            "feature_values": model_result.get("growth_stage_feature_values", {}),
+            "feature_names": model_result.get("growth_stage_feature_names", []),
+        },
         "report": report_payload,
     }
 
@@ -878,62 +899,105 @@ def _weighted_health_score(
     return round(max(0.0, min(100.0, weighted_score)), 2)
 
 
+def _stage_is_mature(stage_prediction: Any | None) -> bool:
+    if stage_prediction is None:
+        return False
+    return str(getattr(stage_prediction, "predicted_label", "") or "").strip().lower() == "mature (senescence)"
+
+
+def _feature_summary(feature_names: list[str], feature_values: dict[str, Any]) -> str:
+    if not feature_names:
+        return "No tabular features"
+    return ", ".join(
+        f"{name}={round(float(feature_values.get(name, 0.0)), 6)}"
+        for name in feature_names
+    )
+
+
 def _trained_damage_model_result(
     prediction: Any,
     health_score: float | None = None,
-    maturity_prediction: Any | None = None,
+    stage_prediction: Any | None = None,
 ) -> dict[str, Any]:
     feature_values = {
         name: round(float(value), 6)
         for name, value in (prediction.feature_values or {}).items()
     }
-    maturity_positive = bool(
-        maturity_prediction is not None
-        and str(maturity_prediction.predicted_label or "") == "healthy_mature"
-    )
-    maturity_probability = round(float(getattr(maturity_prediction, "maturity_probability", 0.0)), 4) if maturity_prediction is not None else 0.0
+    stage_feature_values = {
+        name: round(float(value), 6)
+        for name, value in ((getattr(stage_prediction, "feature_values", None) or {}).items())
+    }
+    growth_stage_label = str(getattr(stage_prediction, "predicted_label", "") or "")
+    growth_stage_probability = round(
+        float(getattr(stage_prediction, "growth_stage_probability", getattr(stage_prediction, "probability", 0.0))),
+        4,
+    ) if stage_prediction is not None else 0.0
+    stage_confidence = round(float(getattr(stage_prediction, "confidence", 0.0)), 4) if stage_prediction is not None else 0.0
+    growth_stage_probabilities = {
+        str(name): round(float(value), 4)
+        for name, value in (getattr(stage_prediction, "class_probabilities", {}) or {}).items()
+    }
+    maturity_positive = _stage_is_mature(stage_prediction)
+    maturity_probability = round(float(getattr(stage_prediction, "maturity_probability", 0.0)), 4) if stage_prediction is not None else 0.0
+    display_label = "mature" if maturity_positive else prediction.predicted_label
+
     return {
         "health_score": round(float(health_score), 2) if health_score is not None else round(float(prediction.healthy_probability) * 100.0, 2),
-        "health_band": "mature" if maturity_positive else prediction.predicted_label,
+        "health_band": display_label,
         "confidence": round(float(prediction.confidence), 4),
         "probability": round(float(prediction.probability), 4),
         "healthy_probability": round(float(prediction.healthy_probability), 4),
         "unhealthy_damaged_probability": round(float(prediction.unhealthy_damaged_probability), 4),
         "threshold": round(float(prediction.threshold), 4),
-        "maturity_label": "mature" if maturity_positive else "not_mature",
-        "maturity_probability": maturity_probability,
-        "maturity_threshold": round(float(getattr(maturity_prediction, "threshold", 0.0)), 4) if maturity_prediction is not None else 0.0,
         "feature_values": feature_values,
         "feature_names": list(prediction.feature_names or []),
+        "class_probabilities": {
+            str(name): round(float(value), 4)
+            for name, value in (getattr(prediction, "class_probabilities", {}) or {}).items()
+        },
+        "health_model_name": str(getattr(prediction, "model_name", "") or ""),
+        "health_model_kind": str(getattr(prediction, "model_kind", "") or ""),
+        "growth_stage_label": growth_stage_label,
+        "growth_stage_probability": growth_stage_probability,
+        "growth_stage_confidence": stage_confidence,
+        "growth_stage_probabilities": growth_stage_probabilities,
+        "growth_stage_feature_values": stage_feature_values,
+        "growth_stage_feature_names": list(getattr(stage_prediction, "feature_names", []) or []),
+        "growth_stage_model_name": str(getattr(stage_prediction, "model_name", "") or ""),
+        "growth_stage_model_kind": str(getattr(stage_prediction, "model_kind", "") or ""),
+        "maturity_label": "mature" if maturity_positive else "not_mature",
+        "maturity_probability": maturity_probability,
         "main_findings": [
-            f"Predicted label: {_prediction_label_display('mature' if maturity_positive else prediction.predicted_label)}",
-            f"Prediction confidence: {round(float(prediction.confidence) * 100.0, 2)}%",
-            f"Maturity probability: {round(maturity_probability * 100.0, 2)}%",
-            "Model features: "
-            + ", ".join(f"{name}={feature_values.get(name, 0.0)}" for name in prediction.feature_names or []),
+            f"Health-status prediction: {_prediction_label_display(prediction.predicted_label)}",
+            f"Displayed result band: {_prediction_label_display(display_label)}",
+            f"Health confidence: {round(float(prediction.confidence) * 100.0, 2)}%",
+            f"Growth stage: {growth_stage_label or 'Unavailable'} ({round(growth_stage_probability * 100.0, 2)}%)",
+            f"Health model features: {_feature_summary(list(prediction.feature_names or []), feature_values)}",
+            f"Stage model features: {_feature_summary(list(getattr(stage_prediction, 'feature_names', []) or []), stage_feature_values)}",
         ],
     }
 
 
-def _trained_damage_summary(prediction: Any, maturity_prediction: Any | None = None) -> tuple[str, str]:
-    maturity_positive = bool(
-        maturity_prediction is not None
-        and str(maturity_prediction.predicted_label or "") == "healthy_mature"
-    )
-    label_display = _prediction_label_display("mature" if maturity_positive else prediction.predicted_label)
+def _trained_damage_summary(prediction: Any, stage_prediction: Any | None = None) -> tuple[str, str]:
+    maturity_positive = _stage_is_mature(stage_prediction)
+    stage_label = str(getattr(stage_prediction, "predicted_label", "") or "")
+    stage_probability = round(
+        float(getattr(stage_prediction, "growth_stage_probability", getattr(stage_prediction, "probability", 0.0))) * 100.0,
+        2,
+    ) if stage_prediction is not None else 0.0
     confidence_pct = round(float(prediction.confidence) * 100.0, 2)
-    maturity_pct = round(float(getattr(maturity_prediction, "maturity_probability", 0.0)) * 100.0, 2)
+
     if maturity_positive:
-        summary = "Farm Crop: trained maturity model suggests the field is likely mature."
+        summary = "Farm Crop: growth-stage model suggests the field is likely mature (senescence)."
     elif prediction.predicted_label == "healthy":
-        summary = "Farm Crop: trained vegetation damage model predicts healthy vegetation."
+        summary = "Farm Crop: health-status model predicts healthy vegetation."
     else:
-        summary = "Farm Crop: trained vegetation damage model predicts unhealthy or damaged vegetation."
+        summary = "Farm Crop: health-status model predicts unhealthy or damaged vegetation."
 
     explanation = (
-        f"Prediction: {label_display} at {confidence_pct}% confidence. "
-        f"Maturity model probability: {maturity_pct}%. "
-        "This result uses the trained vegetation health and maturity models."
+        f"Health-status prediction: {_prediction_label_display(prediction.predicted_label)} at {confidence_pct}% confidence. "
+        f"Growth-stage prediction: {stage_label or 'Unavailable'} at {stage_probability}%. "
+        "This result uses the trained health-status and growth-stage models."
     )
     return summary, explanation
 
@@ -941,51 +1005,69 @@ def _trained_damage_summary(prediction: Any, maturity_prediction: Any | None = N
 def _trained_damage_recommendations(
     prediction: Any,
     feature_values: dict[str, Any] | None = None,
-    maturity_prediction: Any | None = None,
+    stage_prediction: Any | None = None,
 ) -> list[str]:
     features = feature_values or prediction.feature_values or {}
     confidence_pct = round(float(prediction.confidence) * 100.0, 1)
     label = str(prediction.predicted_label or "")
     tgi = float(features.get("tgi", 0.0))
-    std_g = float(features.get("std_g", 0.0))
-    uniformity = float(features.get("stand_uniformity_score", 0.0))
-    maturity_positive = bool(
-        maturity_prediction is not None
-        and str(maturity_prediction.predicted_label or "") == "healthy_mature"
-    )
-    maturity_pct = round(float(getattr(maturity_prediction, "maturity_probability", 0.0)) * 100.0, 1)
+    dgci = float(features.get("dgci", 0.0))
+    cive = float(features.get("cive", 0.0))
+    mgrvi = float(features.get("mgrvi", 0.0))
+    stage_label = str(getattr(stage_prediction, "predicted_label", "") or "")
+    stage_probability = round(
+        float(getattr(stage_prediction, "growth_stage_probability", getattr(stage_prediction, "probability", 0.0))) * 100.0,
+        1,
+    ) if stage_prediction is not None else 0.0
+    maturity_positive = _stage_is_mature(stage_prediction)
 
     recs: list[str] = []
     if maturity_positive:
         recs.append(
-            f"The maturity model likely classifies this area as mature ({maturity_pct}% probability), but confirm crop stage in the field before harvest decisions."
+            f"The growth-stage model likely places this area in Mature (Senescence) ({stage_probability}% probability), so confirm crop stage in the field before treating the appearance as damage."
         )
-        recs.append("Check kernels, husk dryness, and stalk condition on-site to confirm maturity rather than active damage.")
-        if uniformity < 0.45:
-            recs.append("Maturity appears uneven across the canopy, so inspect whether the field is drying down at different rates.")
-        recs.append("Use the health model only as secondary context here because mature corn can naturally look less green.")
+        recs.append("Check kernels, husk dryness, and stalk condition on-site before harvest decisions.")
+        recs.append("Use the health-status prediction only as secondary context here because mature corn can naturally look less green.")
     elif label == "unhealthy_damaged":
+        if stage_label:
+            recs.append(
+                f"The growth-stage model places this area in {stage_label} ({stage_probability}% probability). Compare follow-up scans against images from the same stage."
+            )
         recs.append(
-            f"The model likely detected unhealthy or damaged vegetation ({confidence_pct}% confidence), but this is not a certainty. Confirm with a field check before taking major action."
+            f"The health-status model likely detected unhealthy or damaged vegetation ({confidence_pct}% confidence), but this is still a screening result that should be confirmed on-site."
         )
         if tgi < 0:
-            recs.append("Lower TGI likely points to reduced greenness or chlorophyll response. Check for nutrient stress, leaf damage, or water limitations.")
-        if uniformity < 0.45:
-            recs.append("Low stand uniformity likely means patchy crop condition. Walk the weaker-looking blocks and compare them with nearby healthy sections.")
-        if std_g < 0.12:
-            recs.append("The green-channel spread is narrow, which may suggest consistently weak canopy color across the selected area.")
-        recs.append("If the canopy still looks questionable on-site, re-scan under similar daylight after corrective action to compare changes.")
+            recs.append("The lower TGI value suggests weaker greenness, so inspect for nutrient stress, water limitations, or leaf damage.")
+        if dgci < 0.35:
+            recs.append("DGCI is relatively low, which can indicate weaker canopy greenness. Compare this block with a visibly stronger area in the field.")
+        if mgrvi < 0:
+            recs.append("The MGRVI signal is weak, so check whether the canopy is losing healthy green response.")
+        if cive > 15:
+            recs.append("CIVE is elevated here, so inspect for discoloration, exposed soil, or inconsistent canopy cover.")
+        recs.append("Re-scan after corrective action under similar daylight so the next result is easier to compare.")
     else:
+        if stage_label:
+            recs.append(
+                f"The growth-stage model places this area in {stage_label} ({stage_probability}% probability). Use that stage context when comparing future scans."
+            )
         recs.append(
-            f"The model likely sees this area as healthy ({confidence_pct}% confidence), but treat this as a screening result rather than certainty."
+            f"The health-status model likely sees this area as healthy ({confidence_pct}% confidence), but continue routine scouting before making major decisions."
         )
-        if uniformity < 0.55:
-            recs.append("Even with a healthy prediction, the stand uniformity is only moderate. It is worth checking for early patchiness before it spreads.")
+        if mgrvi < 0.05:
+            recs.append("Green vigor looks only modest from the MGRVI signal, so keep an eye on early weak patches.")
         else:
-            recs.append("Visual consistency looks stable. Maintain the current program and continue routine scouting.")
+            recs.append("Visual stability looks acceptable, so maintain the current management program and monitor for change.")
         recs.append("Repeat the scan under similar lighting so future predictions stay comparable.")
 
     return recs[:6]
+
+
+def _segment_feature_value(segment: dict[str, Any], feature_name: str, fallback: float = 0.0) -> float:
+    feature_values = segment.get("health_feature_values", {}) or {}
+    try:
+        return float(feature_values.get(feature_name, fallback))
+    except (TypeError, ValueError):
+        return float(fallback)
 
 
 def _ml_segment_recommendation(segment: dict[str, Any]) -> str:
@@ -995,27 +1077,31 @@ def _ml_segment_recommendation(segment: dict[str, Any]) -> str:
 
     label = str(segment.get("health_band", "")).lower()
     confidence = round(float(segment.get("confidence", 0.0)) * 100.0, 1)
-    tgi = float(segment.get("ml_tgi", segment.get("tgi", 0.0)))
-    uniformity = float(segment.get("ml_stand_uniformity_score", segment.get("stand_uniformity_score", 0.0)))
+    stage_label = str(segment.get("growth_stage_label", "") or "")
+    tgi = _segment_feature_value(segment, "tgi", segment.get("tgi", 0.0))
+    uniformity = float(segment.get("stand_uniformity_score", 0.0) or 0.0)
 
     if label == "mature":
         return (
-            f"This segment is likely mature ({round(float(segment.get('maturity_probability', 0.0)) * 100.0, 1)}% probability). "
+            f"This segment is likely in a mature stage ({round(float(segment.get('maturity_probability', 0.0)) * 100.0, 1)}% mature-stage probability). "
             "Confirm crop stage in the field before treating the appearance as damage."
         )
     if label == "unhealthy_damaged":
         parts = [
             f"This segment is likely unhealthy or damaged ({confidence}% confidence), but that is not a certainty."
         ]
+        if stage_label:
+            parts.append(f"The stage model also places it in {stage_label}.")
         if tgi < 0:
-            parts.append("The lower greenness signal likely deserves an on-site check for stress, discoloration, or damage.")
-        if uniformity < 0.45:
-            parts.append("Patchiness is also likely present here, so compare this segment with the neighboring cells.")
+            parts.append("The lower greenness signal deserves an on-site check for stress, discoloration, or damage.")
+        if uniformity < 45.0:
+            parts.append("Patchiness is also likely present here, so compare this segment with neighboring cells.")
         parts.append("Use the field check to confirm before applying targeted treatment.")
         return " ".join(parts)
 
     return (
         f"This segment is likely healthy ({confidence}% confidence), though the prediction is still only a model estimate. "
+        f"{('The stage model places it in ' + stage_label + '. ') if stage_label else ''}"
         "Keep monitoring and verify any suspicious areas in person."
     )
 
@@ -1025,19 +1111,22 @@ def _ml_segment_possible_issue(segment: dict[str, Any]) -> str:
         return "This segment is mostly empty or outside the selected crop region, so the model did not score it."
 
     label = str(segment.get("health_band", "")).lower()
-    tgi = float(segment.get("ml_tgi", segment.get("tgi", 0.0)))
-    uniformity = float(segment.get("ml_stand_uniformity_score", segment.get("stand_uniformity_score", 0.0)))
+    stage_label = str(segment.get("growth_stage_label", "") or "")
+    tgi = _segment_feature_value(segment, "tgi", segment.get("tgi", 0.0))
+    uniformity = float(segment.get("stand_uniformity_score", 0.0) or 0.0)
 
     if label == "mature":
-        return "The maturity model suggests this segment is likely in a mature stage rather than primarily damaged."
+        return "The growth-stage model suggests this segment is likely in a mature or senescent stage rather than primarily damaged."
     if label == "unhealthy_damaged":
-        if uniformity < 0.45:
+        if uniformity < 45.0:
             return "Likely uneven crop condition or patchy stress, though this should still be confirmed in the field."
         if tgi < 0:
             return "Likely reduced greenness or chlorophyll-related stress, but not with certainty from the image alone."
+        if stage_label:
+            return f"The model likely sees damage or unhealthy vegetation in a segment currently classified as {stage_label}, but it should be validated on-site."
         return "The model likely sees damage or unhealthy vegetation in this cell, but it should be validated on-site."
 
-    if uniformity < 0.55:
+    if uniformity < 55.0:
         return "No major damage prediction, but the canopy may be slightly uneven in this segment."
     return "No strong issue is likely from the model output, although routine field validation is still recommended."
 
@@ -1486,28 +1575,15 @@ def analyze_freeform_cropped_segments(
     masked_original.putalpha(analysis_mask)
 
     metrics = _masked_rgb_metrics(analysis_rgb, analysis_mask)
-    snapshot = RGBSnapshot(
-        mean_red=metrics["mean_r"],
-        mean_green=metrics["mean_g"],
-        mean_blue=metrics["mean_b"],
-        green_coverage=metrics["green_coverage"],
-        dry_coverage=metrics["dry_coverage"],
-        camera_model="DJI Mini 4 Pro",
-    )
-    context = FieldContext(crop_name="Farm Crop", growth_stage="unknown", rainfall_last_7d_mm=0.0, avg_temp_c=0.0)
-    report = interpret_field_from_rgb(snapshot, context)
     trained_prediction = predict_vegetation_damage_from_rgb(
         np.asarray(analysis_rgb, dtype=np.uint8),
         mask=np.asarray(analysis_mask.convert("L"), dtype=np.uint8),
     )
-    maturity_prediction = predict_maturity_from_rgb(
+    stage_prediction = predict_growth_stage_from_rgb(
         np.asarray(analysis_rgb, dtype=np.uint8),
         mask=np.asarray(analysis_mask.convert("L"), dtype=np.uint8),
     )
-    summary, explanation = _trained_damage_summary(trained_prediction, maturity_prediction)
-    report_payload = asdict(report)
-    report_payload["one_line_summary"] = summary
-    report_payload["simple_explanation"] = explanation
+    summary, explanation = _trained_damage_summary(trained_prediction, stage_prediction)
     extended_indices = _compute_extended_rgb_indices(
         metrics["mean_r"], metrics["mean_g"], metrics["mean_b"], metrics["green_coverage"]
     )
@@ -1517,16 +1593,21 @@ def analyze_freeform_cropped_segments(
         canopy_score=round(extended_indices["canopy_cover_pct"], 2),
         uniformity_score=round(extended_indices["stand_uniformity_score"], 2),
     )
-    report_payload["model_result"] = _trained_damage_model_result(
+    model_result = _trained_damage_model_result(
         trained_prediction,
         health_score=weighted_health_score,
-        maturity_prediction=maturity_prediction,
+        stage_prediction=stage_prediction,
     )
-    report_payload["recommendations"] = _trained_damage_recommendations(
-        trained_prediction,
-        report_payload["model_result"].get("feature_values"),
-        maturity_prediction=maturity_prediction,
-    )
+    report_payload = {
+        "one_line_summary": summary,
+        "simple_explanation": explanation,
+        "model_result": model_result,
+        "recommendations": _trained_damage_recommendations(
+            trained_prediction,
+            model_result.get("feature_values"),
+            stage_prediction=stage_prediction,
+        ),
+    }
     zone = _management_zone_recommendation(extended_indices, stress_ratio=metrics["stress_ratio"])
 
     heatzone = _build_masked_heatzone_image(analysis_rgb, analysis_mask)
@@ -1595,20 +1676,11 @@ def analyze_freeform_cropped_segments(
                     raise RuntimeError("Segment outside selected crop area.")
                 if region_metrics["valid_pixel_ratio"] < CROP_SEGMENT_MIN_VALID_PIXEL_RATIO:
                     raise RuntimeError("Segment has too many blank/padding pixels.")
-                region_snapshot = RGBSnapshot(
-                    mean_red=region_metrics["mean_r"],
-                    mean_green=region_metrics["mean_g"],
-                    mean_blue=region_metrics["mean_b"],
-                    green_coverage=region_metrics["green_coverage"],
-                    dry_coverage=region_metrics["dry_coverage"],
-                    camera_model="DJI Mini 4 Pro",
-                )
-                region_report = interpret_field_from_rgb(region_snapshot, context)
                 region_prediction = predict_vegetation_damage_from_rgb(
                     np.asarray(region_rgb.convert("RGB"), dtype=np.uint8),
                     mask=np.asarray(region_mask.convert("L"), dtype=np.uint8),
                 )
-                region_maturity_prediction = predict_maturity_from_rgb(
+                region_stage_prediction = predict_growth_stage_from_rgb(
                     np.asarray(region_rgb.convert("RGB"), dtype=np.uint8),
                     mask=np.asarray(region_mask.convert("L"), dtype=np.uint8),
                 )
@@ -1628,7 +1700,7 @@ def analyze_freeform_cropped_segments(
                 health = _trained_damage_model_result(
                     region_prediction,
                     health_score=region_health_score,
-                    maturity_prediction=region_maturity_prediction,
+                    stage_prediction=region_stage_prediction,
                 )
                 segment_payload = {
                     "segment_id": str(segment_index),
@@ -1638,13 +1710,18 @@ def analyze_freeform_cropped_segments(
                     "health_score": round(float(health.get("health_score", 0.0)), 2),
                     "confidence": round(float(health.get("confidence", 0.0)), 3),
                     "prediction_probability": round(float(health.get("probability", 0.0)), 4),
+                    "threshold": round(float(health.get("threshold", 0.0)), 4),
                     "healthy_probability": round(float(health.get("healthy_probability", 0.0)), 4),
                     "unhealthy_damaged_probability": round(float(health.get("unhealthy_damaged_probability", 0.0)), 4),
+                    "growth_stage_label": health.get("growth_stage_label", ""),
+                    "growth_stage_probability": round(float(health.get("growth_stage_probability", 0.0)), 4),
+                    "growth_stage_probabilities": health.get("growth_stage_probabilities", {}),
                     "maturity_probability": round(float(health.get("maturity_probability", 0.0)), 4),
                     "maturity_label": health.get("maturity_label", "not_mature"),
-                    "ml_tgi": round(float(health.get("feature_values", {}).get("tgi", 0.0)), 6),
-                    "ml_std_g": round(float(health.get("feature_values", {}).get("std_g", 0.0)), 6),
-                    "ml_stand_uniformity_score": round(float(health.get("feature_values", {}).get("stand_uniformity_score", 0.0)), 6),
+                    "health_feature_values": health.get("feature_values", {}),
+                    "health_feature_names": health.get("feature_names", []),
+                    "stage_feature_values": health.get("growth_stage_feature_values", {}),
+                    "stage_feature_names": health.get("growth_stage_feature_names", []),
                     "green_coverage_pct": round(region_metrics["green_coverage"] * 100, 2),
                     "estimated_stress_zone_pct": round(region_metrics["stress_ratio"] * 100, 2),
                     "vegetation_vigor_score": round((region_metrics["avg_vigor"] + 1) * 50, 2),
@@ -1681,13 +1758,18 @@ def analyze_freeform_cropped_segments(
                         "health_score": 0.0,
                         "confidence": 0.0,
                         "prediction_probability": 0.0,
+                        "threshold": 0.0,
                         "healthy_probability": 0.0,
                         "unhealthy_damaged_probability": 0.0,
+                        "growth_stage_label": "",
+                        "growth_stage_probability": 0.0,
+                        "growth_stage_probabilities": {},
                         "maturity_probability": 0.0,
                         "maturity_label": "not_mature",
-                        "ml_tgi": 0.0,
-                        "ml_std_g": 0.0,
-                        "ml_stand_uniformity_score": 0.0,
+                        "health_feature_values": {},
+                        "health_feature_names": [],
+                        "stage_feature_values": {},
+                        "stage_feature_names": [],
                         "green_coverage_pct": 0.0,
                         "estimated_stress_zone_pct": 0.0,
                         "vegetation_vigor_score": 0.0,
@@ -1718,7 +1800,7 @@ def analyze_freeform_cropped_segments(
             segment_index += 1
 
     analysis_payload = {
-        "analysis_version": "rgb-proxy-masked-selection-v4-dji-mini4pro",
+        "analysis_version": "dual-hybrid-mobilenet-masked-selection-v1-dji-mini4pro",
         "image_id": image_id,
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "preprocessing": {
@@ -1755,7 +1837,15 @@ def analyze_freeform_cropped_segments(
             "stand_uniformity_score": round(extended_indices["stand_uniformity_score"], 2),
             "relative_yield_potential_pct": round(extended_indices["relative_yield_potential_pct"], 2),
         },
-        "vegetation_damage_model": report_payload["model_result"],
+        "vegetation_damage_model": model_result,
+        "growth_stage_model": {
+            "growth_stage_label": model_result.get("growth_stage_label", ""),
+            "growth_stage_probability": model_result.get("growth_stage_probability", 0.0),
+            "growth_stage_probabilities": model_result.get("growth_stage_probabilities", {}),
+            "maturity_probability": model_result.get("maturity_probability", 0.0),
+            "feature_values": model_result.get("growth_stage_feature_values", {}),
+            "feature_names": model_result.get("growth_stage_feature_names", []),
+        },
         "report": report_payload,
     }
 
@@ -1838,6 +1928,9 @@ def build_history_entry_payload(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def _phenological_stage_label(model_result: dict[str, Any]) -> str:
+    growth_stage_label = str(model_result.get("growth_stage_label", "") or "").strip()
+    if growth_stage_label:
+        return growth_stage_label
     health_band = str(model_result.get("health_band", "")).lower()
     maturity_label = str(model_result.get("maturity_label", "")).lower()
     maturity_probability = float(model_result.get("maturity_probability", 0.0) or 0.0)
