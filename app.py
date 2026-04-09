@@ -149,6 +149,8 @@ CROP_SEGMENT_EDGE_MIN_OCCUPIED_SPAN_RATIO = 0.55
 CROP_SEGMENT_MIN_VALID_PIXEL_RATIO = 0.35
 ORTHO_MAX_EDGE_PX = 1400
 ORTHO_MIN_EDGE_PX = 220
+SEGMENTATION_CACHE_FILENAME = "segmentation-cache.json"
+SEGMENTATION_CACHE_VERSION = 1
 
 
 def describe_supabase_auth_error(exc: Exception | None = None) -> str:
@@ -392,6 +394,113 @@ def delete_file_from_bucket(bucket: str, object_path: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def _segmentation_cache_object_path(user_id: str, image_id: str) -> str:
+    return f"{user_id}/{image_id}/{SEGMENTATION_CACHE_FILENAME}"
+
+
+def _segmentation_cache_local_path(user_id: str, image_id: str) -> Path:
+    return ensure_cached_media_dir(user_id, image_id) / SEGMENTATION_CACHE_FILENAME
+
+
+def _read_json_file(path: Path) -> dict[str, Any] | None:
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _prepare_cached_segmentation_payload(
+    payload: dict[str, Any],
+    grid_rows: int,
+    grid_cols: int,
+    generated_at: str | None = None,
+) -> dict[str, Any]:
+    prepared = dict(payload or {})
+    prepared.pop("cropped_original_data_url", None)
+    prepared["cache_meta"] = {
+        "mode": "full-image",
+        "version": SEGMENTATION_CACHE_VERSION,
+        "grid_rows": int(grid_rows),
+        "grid_cols": int(grid_cols),
+        "generated_at": generated_at or now_utc_iso(),
+    }
+    return prepared
+
+
+def _can_reuse_cached_segmentation_payload(
+    payload: dict[str, Any] | None,
+    grid_rows: int,
+    grid_cols: int,
+) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    meta = payload.get("cache_meta")
+    if not isinstance(meta, dict):
+        return False
+    try:
+        saved_rows = int(meta.get("grid_rows", 0))
+        saved_cols = int(meta.get("grid_cols", 0))
+    except (TypeError, ValueError):
+        return False
+    mode = str(meta.get("mode", "") or "").strip().lower()
+    return mode == "full-image" and saved_rows == int(grid_rows) and saved_cols == int(grid_cols)
+
+
+def load_cached_segmentation_payload(user_id: str, image_id: str) -> dict[str, Any] | None:
+    local_path = _segmentation_cache_local_path(user_id, image_id)
+    local_payload = _read_json_file(local_path)
+    if isinstance(local_payload, dict):
+        return local_payload
+
+    object_path = _segmentation_cache_object_path(user_id, image_id)
+    if download_file_from_bucket(SUPABASE_BUCKET_REPORTS, object_path, local_path):
+        return _read_json_file(local_path)
+    return None
+
+
+def persist_cached_segmentation_payload(
+    user_id: str,
+    image_id: str,
+    payload: dict[str, Any],
+    grid_rows: int,
+    grid_cols: int,
+) -> dict[str, Any]:
+    prepared = _prepare_cached_segmentation_payload(payload, grid_rows, grid_cols)
+    local_path = _segmentation_cache_local_path(user_id, image_id)
+    try:
+        _write_json_file(local_path, prepared)
+    except OSError as exc:
+        LOGGER.warning("Local segmentation cache write failed for result %s: %s", image_id, exc)
+
+    object_path = _segmentation_cache_object_path(user_id, image_id)
+    ok_upload, err_upload = upload_json_to_bucket(SUPABASE_BUCKET_REPORTS, object_path, prepared)
+    if not ok_upload:
+        LOGGER.warning("Segmentation cache upload failed for result %s: %s", image_id, err_upload or "unknown error")
+    return prepared
+
+
+def clear_cached_segmentation_payload(user_id: str, image_id: str) -> None:
+    local_path = _segmentation_cache_local_path(user_id, image_id)
+    try:
+        if local_path.exists():
+            local_path.unlink()
+    except OSError as exc:
+        LOGGER.warning("Local segmentation cache cleanup failed for result %s: %s", image_id, exc)
+
+    delete_file_from_bucket(
+        SUPABASE_BUCKET_REPORTS,
+        _segmentation_cache_object_path(user_id, image_id),
+    )
 
 
 def default_result_personalization() -> dict[str, Any]:
@@ -1237,11 +1346,6 @@ def _merge_field_stage_into_model_result(model_result: dict[str, Any], field_sta
 def _trained_damage_summary(prediction: Any, stage_prediction: Any | None = None) -> tuple[str, str]:
     maturity_positive = _stage_is_mature(stage_prediction)
     stage_label = str(getattr(stage_prediction, "predicted_label", "") or "")
-    stage_probability = round(
-        float(getattr(stage_prediction, "growth_stage_probability", getattr(stage_prediction, "probability", 0.0))) * 100.0,
-        2,
-    ) if stage_prediction is not None else 0.0
-    confidence_pct = round(float(prediction.confidence) * 100.0, 2)
 
     if maturity_positive:
         summary = "Farm Crop: growth-stage model suggests the field is likely mature (senescence)."
@@ -1251,8 +1355,8 @@ def _trained_damage_summary(prediction: Any, stage_prediction: Any | None = None
         summary = "Farm Crop: health-status model predicts unhealthy or damaged vegetation."
 
     explanation = (
-        f"Health-status prediction: {_prediction_label_display(prediction.predicted_label)} at {confidence_pct}% confidence. "
-        f"Growth-stage prediction: {stage_label or 'Unavailable'} at {stage_probability}%. "
+        f"Health-status prediction: {_prediction_label_display(prediction.predicted_label)}. "
+        f"Growth-stage prediction: {stage_label or 'Unavailable'}. "
         "This result uses the trained health-status and growth-stage models."
     )
     return summary, explanation
@@ -1264,33 +1368,28 @@ def _trained_damage_recommendations(
     stage_prediction: Any | None = None,
 ) -> list[str]:
     features = feature_values or prediction.feature_values or {}
-    confidence_pct = round(float(prediction.confidence) * 100.0, 1)
     label = str(prediction.predicted_label or "")
     tgi = float(features.get("tgi", 0.0))
     dgci = float(features.get("dgci", 0.0))
     cive = float(features.get("cive", 0.0))
     mgrvi = float(features.get("mgrvi", 0.0))
     stage_label = str(getattr(stage_prediction, "predicted_label", "") or "")
-    stage_probability = round(
-        float(getattr(stage_prediction, "growth_stage_probability", getattr(stage_prediction, "probability", 0.0))) * 100.0,
-        1,
-    ) if stage_prediction is not None else 0.0
     maturity_positive = _stage_is_mature(stage_prediction)
 
     recs: list[str] = []
     if maturity_positive:
         recs.append(
-            f"The growth-stage model likely places this area in Mature (Senescence) ({stage_probability}% probability), so confirm crop stage in the field before treating the appearance as damage."
+            "The growth-stage model places this area in Mature (Senescence), so confirm crop stage in the field before treating the appearance as damage."
         )
         recs.append("Check kernels, husk dryness, and stalk condition on-site before harvest decisions.")
         recs.append("Use the health-status prediction only as secondary context here because mature corn can naturally look less green.")
     elif label == "unhealthy_damaged":
         if stage_label:
             recs.append(
-                f"The growth-stage model places this area in {stage_label} ({stage_probability}% probability). Compare follow-up scans against images from the same stage."
+                f"The growth-stage model places this area in {stage_label}. Compare follow-up scans against images from the same stage."
             )
         recs.append(
-            f"The health-status model likely detected unhealthy or damaged vegetation ({confidence_pct}% confidence), but this is still a screening result that should be confirmed on-site."
+            "The health-status model likely detected unhealthy or damaged vegetation, but this is still a screening result that should be confirmed on-site."
         )
         if tgi < 0:
             recs.append("The lower TGI value suggests weaker greenness, so inspect for nutrient stress, water limitations, or leaf damage.")
@@ -1304,10 +1403,10 @@ def _trained_damage_recommendations(
     else:
         if stage_label:
             recs.append(
-                f"The growth-stage model places this area in {stage_label} ({stage_probability}% probability). Use that stage context when comparing future scans."
+                f"The growth-stage model places this area in {stage_label}. Use that stage context when comparing future scans."
             )
         recs.append(
-            f"The health-status model likely sees this area as healthy ({confidence_pct}% confidence), but continue routine scouting before making major decisions."
+            "The health-status model likely sees this area as healthy, but continue routine scouting before making major decisions."
         )
         if mgrvi < 0.05:
             recs.append("Green vigor looks only modest from the MGRVI signal, so keep an eye on early weak patches.")
@@ -1326,40 +1425,150 @@ def _segment_feature_value(segment: dict[str, Any], feature_name: str, fallback:
         return float(fallback)
 
 
-def _ml_segment_recommendation(segment: dict[str, Any]) -> str:
+def _segment_stage_bucket(segment: dict[str, Any]) -> str:
+    stage_label = str(segment.get("growth_stage_label", "") or "").strip().lower()
+    if stage_label == "early vegetative":
+        return "early_vegetative"
+    if stage_label == "late vegetative":
+        return "late_vegetative"
+    if "tasseling" in stage_label:
+        return "tasseling"
+    if "mature" in stage_label or "senescence" in stage_label:
+        return "mature"
+    return "unknown"
+
+
+def _join_human_list(parts: list[str]) -> str:
+    clean_parts = [str(part).strip() for part in parts if str(part).strip()]
+    if not clean_parts:
+        return ""
+    if len(clean_parts) == 1:
+        return clean_parts[0]
+    if len(clean_parts) == 2:
+        return f"{clean_parts[0]} and {clean_parts[1]}"
+    return f"{', '.join(clean_parts[:-1])}, and {clean_parts[-1]}"
+
+
+def _segment_condition_phrase(segment: dict[str, Any]) -> str:
+    canopy = float(segment.get("canopy_cover_pct", 0.0) or 0.0)
+    green = float(segment.get("green_coverage_pct", 0.0) or 0.0)
+    vigor = float(segment.get("vegetation_vigor_score", 0.0) or 0.0)
+    uniformity = float(segment.get("stand_uniformity_score", 0.0) or 0.0)
+    stress = float(segment.get("estimated_stress_zone_pct", 0.0) or 0.0)
+
+    descriptors: list[str] = []
+    if canopy < 20.0:
+        descriptors.append("very low canopy cover")
+    elif canopy < 40.0:
+        descriptors.append("low canopy cover")
+
+    if green < 20.0:
+        descriptors.append("very low green coverage")
+    elif green < 40.0:
+        descriptors.append("low green coverage")
+
+    if vigor < 45.0:
+        descriptors.append("low vigor")
+    elif vigor < 60.0:
+        descriptors.append("fair vigor")
+
+    if uniformity < 45.0:
+        descriptors.append("poor stand uniformity")
+    elif uniformity < 60.0:
+        descriptors.append("uneven stand uniformity")
+
+    if stress >= 45.0:
+        descriptors.append("high visible stress")
+    elif stress >= 30.0:
+        descriptors.append("moderate visible stress")
+
+    if not descriptors:
+        return "fairly stable crop condition"
+    return _join_human_list(descriptors)
+
+
+def _segment_recommendation_items(segment: dict[str, Any]) -> list[str]:
     if segment.get("empty"):
         empty_area_pct = round(float(segment.get("empty_area_pct", 100.0)), 1)
-        return f"EMPTY segment: about {empty_area_pct}% of this cell has no usable crop area, so no vegetation recommendation can be made."
+        return [
+            f"About {empty_area_pct}% of this cell has no usable crop area, so do not base agronomic action on this segment alone."
+        ]
 
     label = str(segment.get("health_band", "")).lower()
-    confidence = round(float(segment.get("confidence", 0.0)) * 100.0, 1)
-    stage_label = str(segment.get("growth_stage_label", "") or "")
-    tgi = _segment_feature_value(segment, "tgi", segment.get("tgi", 0.0))
-    uniformity = float(segment.get("stand_uniformity_score", 0.0) or 0.0)
+    stage_bucket = _segment_stage_bucket(segment)
+    condition_phrase = _segment_condition_phrase(segment)
+    recommendations: list[str] = []
 
-    if label == "mature":
-        return (
-            f"This segment is likely in a mature stage ({round(float(segment.get('maturity_probability', 0.0)) * 100.0, 1)}% mature-stage probability). "
-            "Confirm crop stage in the field before treating the appearance as damage."
-        )
-    if label == "unhealthy_damaged":
-        parts = [
-            f"This segment is likely unhealthy or damaged ({confidence}% confidence), but that is not a certainty."
+    if label == "healthy" and condition_phrase == "fairly stable crop condition":
+        if stage_bucket == "mature":
+            return [
+                "This mature corn segment looks comparatively stable, so use it as a harvest-timing reference instead of treating lower greenness as automatic damage.",
+                "Keep checking kernels, husk dryness, and stalk strength as the field approaches harvest.",
+            ]
+        return [
+            "This segment looks comparatively stable for its current corn stage, so use it as a comparison point when scouting weaker cells.",
+            "Keep routine irrigation, nutrition, and scouting in place, then rescan under similar light for a clean before-and-after comparison.",
         ]
-        if stage_label:
-            parts.append(f"The field-wide stage model places the overall field in {stage_label}.")
-        if tgi < 0:
-            parts.append("The lower greenness signal deserves an on-site check for stress, discoloration, or damage.")
-        if uniformity < 45.0:
-            parts.append("Patchiness is also likely present here, so compare this segment with neighboring cells.")
-        parts.append("Use the field check to confirm before applying targeted treatment.")
-        return " ".join(parts)
 
-    return (
-        f"This segment is likely healthy ({confidence}% confidence), though the prediction is still only a model estimate. "
-        f"{('The field-wide stage model places the overall field in ' + stage_label + '. ') if stage_label else ''}"
-        "Keep monitoring and verify any suspicious areas in person."
+    if stage_bucket == "mature":
+        recommendations.append(
+            f"This mature corn segment shows {condition_phrase}, so treat it as a harvest-priority check rather than assuming low greenness alone is active damage."
+        )
+        recommendations.append(
+            "Confirm field maturity and harvest risk on-site by checking kernel fill or black layer, husk dryness, and stalk strength; harvest weak pockets first if stalks fail push or pinch tests."
+        )
+        recommendations.append(
+            "Avoid late rescue fertilizer or cosmetic inputs unless scouting finds a correctable cause, and map the weak area now for post-harvest checks on drainage, compaction, stand establishment, or pest pressure."
+        )
+        return recommendations
+
+    if stage_bucket == "tasseling":
+        recommendations.append(
+            f"This tasseling corn segment shows {condition_phrase}, and stress at tasseling or silking can reduce kernel set quickly."
+        )
+        recommendations.append(
+            "Check soil moisture or irrigation coverage immediately, then inspect silks, pollen shed, and leaf rolling in the weak patches before adding inputs."
+        )
+        recommendations.append(
+            "If scouting still points to nitrogen or root restriction, verify it promptly because corrective nitrogen is most useful before the crop moves much farther past tasseling."
+        )
+        return recommendations
+
+    if stage_bucket == "late_vegetative":
+        recommendations.append(
+            f"This late-vegetative corn segment shows {condition_phrase}, which often points to stand gaps, root restriction, moisture stress, or nitrogen limitation."
+        )
+        recommendations.append(
+            "Scout weak strips against nearby stronger plants and check soil moisture, lower-leaf color, root growth, and sidewall compaction before tasseling."
+        )
+        recommendations.append(
+            "If field evidence supports nitrogen shortage and the crop is still pre-tassel, correct it promptly; otherwise map the uneven zone now for drainage and planter-setting fixes after harvest."
+        )
+        return recommendations
+
+    if stage_bucket == "early_vegetative":
+        recommendations.append(
+            f"This early corn segment shows {condition_phrase}, which usually comes from emergence or establishment problems rather than late-season stress."
+        )
+        recommendations.append(
+            "Count plants and inspect skips, crusting, seed depth, insects, and wet or compacted spots before deciding on extra inputs or replant action."
+        )
+        recommendations.append(
+            "Fix the underlying stand problem first, because extra fertilizer will not recover missing plants or badly uneven emergence."
+        )
+        return recommendations
+
+    recommendations.append(
+        f"This corn segment shows {condition_phrase}, so compare it with stronger neighboring cells during field scouting before applying targeted treatment."
     )
+    recommendations.append(
+        "Check moisture, root health, and visible leaf injury on-site, then rescan under similar daylight after any corrective action."
+    )
+    return recommendations
+
+
+def _ml_segment_recommendation(segment: dict[str, Any]) -> str:
+    return " ".join(_segment_recommendation_items(segment))
 
 
 def _ml_segment_possible_issue(segment: dict[str, Any]) -> str:
@@ -1367,24 +1576,20 @@ def _ml_segment_possible_issue(segment: dict[str, Any]) -> str:
         return "This segment is mostly empty or outside the selected crop region, so the model did not score it."
 
     label = str(segment.get("health_band", "")).lower()
-    stage_label = str(segment.get("growth_stage_label", "") or "")
-    tgi = _segment_feature_value(segment, "tgi", segment.get("tgi", 0.0))
-    uniformity = float(segment.get("stand_uniformity_score", 0.0) or 0.0)
+    stage_bucket = _segment_stage_bucket(segment)
+    condition_phrase = _segment_condition_phrase(segment)
 
-    if label == "mature":
-        return "The growth-stage model suggests this segment is likely in a mature or senescent stage rather than primarily damaged."
-    if label == "unhealthy_damaged":
-        if uniformity < 45.0:
-            return "Likely uneven crop condition or patchy stress, though this should still be confirmed in the field."
-        if tgi < 0:
-            return "Likely reduced greenness or chlorophyll-related stress, but not with certainty from the image alone."
-        if stage_label:
-            return f"The model likely sees damage or unhealthy vegetation in this cell while the overall field stage is {stage_label}, but it should be validated on-site."
-        return "The model likely sees damage or unhealthy vegetation in this cell, but it should be validated on-site."
-
-    if uniformity < 55.0:
-        return "No major damage prediction, but the canopy may be slightly uneven in this segment."
-    return "No strong issue is likely from the model output, although routine field validation is still recommended."
+    if stage_bucket == "mature":
+        return f"Mature corn with {condition_phrase}; check whether this is normal dry-down or a harvest-risk pocket with weak stalks."
+    if stage_bucket == "tasseling":
+        return f"Tasseling corn with {condition_phrase}; moisture stress, pollination stress, root restriction, or nitrogen shortage should be checked first."
+    if stage_bucket == "late_vegetative":
+        return f"Late-vegetative corn with {condition_phrase}; stand gaps, compaction, drainage issues, or nitrogen limitation are plausible causes."
+    if stage_bucket == "early_vegetative":
+        return f"Early corn with {condition_phrase}; emergence problems, crusting, insects, disease, or seed-zone moisture differences are plausible causes."
+    if label == "healthy":
+        return "This segment looks comparatively stable, but it should still be used as a field reference point during scouting."
+    return f"Corn with {condition_phrase}; use field scouting to separate true stress from image-only appearance."
 
 
 def _stress_band_cutoffs(camera_model: str) -> tuple[float, float, float]:
@@ -1516,6 +1721,17 @@ def _default_full_selection_points() -> list[tuple[float, float]]:
         (1.0, 1.0),
         (0.0, 1.0),
     ]
+
+
+def _is_default_full_selection(points: list[tuple[float, float]], tolerance: float = 1e-6) -> bool:
+    expected = _default_full_selection_points()
+    if len(points) != len(expected):
+        return False
+    return all(
+        abs(float(actual[0]) - float(target[0])) <= tolerance
+        and abs(float(actual[1]) - float(target[1])) <= tolerance
+        for actual, target in zip(points, expected)
+    )
 
 
 def _is_full_frame_quad(points: list[tuple[int, int]], width: int, height: int, tolerance_px: int = 2) -> bool:
@@ -1887,6 +2103,7 @@ def analyze_freeform_cropped_segments(
                     "management_zone": region_zone["zone"],
                     "management_action": region_zone["action"],
                 }
+                segment_payload["recommendation_items"] = _segment_recommendation_items(segment_payload)
                 segment_payload["recommendation"] = _segment_recommendation(segment_payload)
                 segment_payload["possible_issue"] = _segment_possible_issue(segment_payload)
                 segments.append(segment_payload)
@@ -1934,6 +2151,9 @@ def analyze_freeform_cropped_segments(
                         "valid_pixel_ratio_pct": 0.0,
                         "management_zone": "EMPTY",
                         "management_action": "This cell is mostly empty, outside the crop region, or has too little usable crop area.",
+                        "recommendation_items": [
+                            "This cell is mostly empty or outside the crop area, so use a neighboring crop-filled segment for guidance."
+                        ],
                         "recommendation": "EMPTY segment: more than 60% of this cell has no usable crop area, so it was not scored.",
                         "possible_issue": "No reliable crop signal in this cell because most of the segment is empty or outside the selected crop region.",
                         "empty": True,
@@ -2046,6 +2266,29 @@ def _format_metric_value(value: Any, suffix: str = "") -> str:
     return f"{rounded:.2f}".rstrip("0").rstrip(".") + suffix
 
 
+_STAGE_RATING_MAP = {
+    "early vegetative": 1,
+    "late vegetative": 2,
+    "tasseling": 3,
+    "mature (senescence)": 4,
+}
+
+_METRIC_RATING_BANDS = (
+    (19.99, 1, "Very Low"),
+    (39.99, 2, "Low"),
+    (59.99, 3, "Fair"),
+    (79.99, 4, "Good"),
+    (100.0, 5, "Strong"),
+)
+
+_HEALTH_RATING_MAP = {
+    "healthy": "5/5 Strong",
+    "unhealthy_damaged": "2/5 Needs Attention",
+    "mature": "3/5 Mature-Stage Look",
+    "empty": "1/5 No Usable Crop",
+}
+
+
 def _history_band_label(value: str) -> str:
     mapping = {
         "healthy": "Healthy",
@@ -2076,8 +2319,35 @@ def _phenological_stage_label(model_result: dict[str, Any]) -> str:
     return "Stage not available"
 
 
+def _phenological_stage_rating_label(model_result: dict[str, Any]) -> str:
+    stage_label = _phenological_stage_label(model_result)
+    stage_key = stage_label.strip().lower()
+    rating = _STAGE_RATING_MAP.get(stage_key)
+    if not rating:
+        return stage_label
+    return f"{rating}/4 {stage_label}"
+
+
 def _healthiness_label(model_result: dict[str, Any]) -> str:
     return _history_band_label(str(model_result.get("health_band", "")))
+
+
+def _healthiness_rating_label(model_result: dict[str, Any]) -> str:
+    band = str(model_result.get("health_band", "") or "").strip().lower()
+    return _HEALTH_RATING_MAP.get(band, _healthiness_label(model_result))
+
+
+def _metric_rating_label(value: Any, suffix: str = "") -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    clamped = max(0.0, min(100.0, numeric))
+    raw_value = _format_metric_value(clamped, suffix)
+    for max_value, rating, label in _METRIC_RATING_BANDS:
+        if clamped <= max_value:
+            return f"{rating}/5 {label} ({raw_value})"
+    return f"5/5 Strong ({raw_value})"
 
 
 def _compact_farmer_recommendations(
@@ -2144,23 +2414,23 @@ def build_farmer_result_payload(entry: dict[str, Any], analysis: dict[str, Any] 
     history_entry = build_history_entry_payload(entry)
 
     status_items = [
-        {"label": "Phenological Stage", "value": _phenological_stage_label(model_result)},
-        {"label": "Healthiness", "value": _healthiness_label(model_result)},
+        {"label": "Phenological Stage", "value": _phenological_stage_rating_label(model_result)},
+        {"label": "Healthiness", "value": _healthiness_rating_label(model_result)},
         {
             "label": "Canopy Cover",
-            "value": _format_metric_value(vegetation_indices.get("percent_canopy_cover"), "%"),
+            "value": _metric_rating_label(vegetation_indices.get("percent_canopy_cover"), "%"),
         },
         {
             "label": "Vigor",
-            "value": _format_metric_value(farmer_features.get("vegetation_vigor_score"), "/100"),
+            "value": _metric_rating_label(farmer_features.get("vegetation_vigor_score"), "/100"),
         },
         {
             "label": "Stand Uniformity",
-            "value": _format_metric_value(vegetation_indices.get("stand_uniformity_score"), "/100"),
+            "value": _metric_rating_label(vegetation_indices.get("stand_uniformity_score"), "/100"),
         },
         {
             "label": "Green Coverage",
-            "value": _format_metric_value(farmer_features.get("green_coverage_pct"), "%"),
+            "value": _metric_rating_label(farmer_features.get("green_coverage_pct"), "%"),
         },
     ]
 
@@ -2717,6 +2987,7 @@ def result_view(image_id: str):
     if not entry:
         return redirect(url_for("results_page"))
     analysis = load_result_analysis(entry)
+    cached_segmentation = load_cached_segmentation_payload(user_id, image_id)
     personalization = read_result_personalization(analysis)
     field_stage = _extract_field_stage_model(analysis)
     site_url = request.url_root.rstrip("/")
@@ -2724,6 +2995,7 @@ def result_view(image_id: str):
         "result-view.html",
         result=entry,
         analysis=analysis,
+        cached_segmentation=cached_segmentation,
         personalization=personalization,
         field_stage=field_stage,
         canonical_url=f"{site_url}/results/{image_id}",
@@ -2742,6 +3014,7 @@ def embedded_result_view(image_id: str):
         return redirect(url_for("dashboard_page", window="history"))
 
     analysis = load_result_analysis(entry)
+    cached_segmentation = load_cached_segmentation_payload(user_id, image_id)
     personalization = read_result_personalization(analysis)
     field_stage = _extract_field_stage_model(analysis)
     site_url = request.url_root.rstrip("/")
@@ -2749,6 +3022,7 @@ def embedded_result_view(image_id: str):
         "embedded_result_view.html",
         result=entry,
         analysis=analysis,
+        cached_segmentation=cached_segmentation,
         personalization=personalization,
         field_stage=field_stage,
         canonical_url=f"{site_url}/results/{image_id}",
@@ -2866,6 +3140,12 @@ def crop_rerun_result(image_id: str):
 
     grid_rows = min(max(grid_rows, 2), 12)
     grid_cols = min(max(grid_cols, 2), 12)
+    is_full_image_request = _is_default_full_selection(points)
+
+    if is_full_image_request:
+        cached_payload = load_cached_segmentation_payload(user_id, image_id)
+        if _can_reuse_cached_segmentation_payload(cached_payload, grid_rows, grid_cols):
+            return jsonify(cached_payload)
 
     original_path, created_temp = _resolve_original_result_image(user_id, image_id, entry)
     if original_path is None or not original_path.exists():
@@ -2881,6 +3161,8 @@ def crop_rerun_result(image_id: str):
             grid_cols,
             field_stage_model=field_stage_model,
         )
+        if is_full_image_request:
+            response = persist_cached_segmentation_payload(user_id, image_id, response, grid_rows, grid_cols)
         add_upload_log(user_id, f"Field segmentation completed ({image_id})", "success")
         return jsonify(response)
     except Exception as exc:
@@ -2968,6 +3250,7 @@ def rerun_result(image_id: str):
             processed["analysis"],
         ):
             raise RuntimeError("Supabase table upsert failed.")
+        clear_cached_segmentation_payload(str(user_id), image_id)
         try:
             if local_heatzone_path.exists():
                 local_heatzone_path.unlink()
@@ -3004,6 +3287,7 @@ def delete_result(image_id: str):
         require_bucket_upload(delete_file_from_bucket(SUPABASE_BUCKET_ORIGINAL, original_path), "original image delete")
         require_bucket_upload(delete_file_from_bucket(SUPABASE_BUCKET_HEATZONE, heatzone_path), "heatzone image delete")
         require_bucket_upload(delete_file_from_bucket(SUPABASE_BUCKET_REPORTS, report_path), "report json delete")
+        clear_cached_segmentation_payload(user_id, image_id)
 
         cache_dir = CACHED_MEDIA_ROOT / user_id / image_id
         if cache_dir.exists():

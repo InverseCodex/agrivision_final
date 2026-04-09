@@ -139,7 +139,8 @@
     let currentStep = 0;
 
     function applySavedAppearance() {
-        const theme = localStorage.getItem(SETTINGS_KEYS.theme) || "default";
+        const forcedTheme = document.body.dataset.forceTheme || "";
+        const theme = forcedTheme || localStorage.getItem(SETTINGS_KEYS.theme) || "minimalist";
         const motionEnabled = localStorage.getItem(SETTINGS_KEYS.motionEnabled);
         document.body.setAttribute("data-theme", theme);
         document.body.classList.toggle("reduce-motion", motionEnabled === "false");

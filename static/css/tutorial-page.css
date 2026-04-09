@@ -49,6 +49,13 @@ body {
         var(--bg);
 }
 
+body[data-theme="minimalist"] {
+    background:
+        radial-gradient(circle at top left, rgba(42, 111, 151, 0.16), transparent 26%),
+        radial-gradient(circle at bottom right, rgba(24, 63, 86, 0.12), transparent 28%),
+        linear-gradient(180deg, #f2f4f5 0%, #edf3f7 100%);
+}
+
 body.reduce-motion * {
     animation: none !important;
     transition: none !important;

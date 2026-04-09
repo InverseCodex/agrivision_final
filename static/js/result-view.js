@@ -31,6 +31,7 @@ const mobileCropPresets = document.getElementById("mobile-crop-presets");
 const segmentVisualFrame = document.getElementById("segment-visual-frame");
 const segmentViewOriginalButton = document.getElementById("segment-view-original");
 const segmentViewHeatzoneButton = document.getElementById("segment-view-heatzone");
+const returnToUploadButton = document.getElementById("return-to-upload");
 const segmentFocusModal = document.getElementById("segment-focus-modal");
 const segmentFocusBackdrop = document.getElementById("segment-focus-backdrop");
 const closeFocusModeButton = document.getElementById("close-focus-mode");
@@ -86,6 +87,7 @@ const recSegReco = document.getElementById("rec-seg-reco");
 
 const initialPersonalizationEl = document.getElementById("initial-personalization");
 const initialFieldStageEl = document.getElementById("initial-field-stage");
+const initialSegmentationEl = document.getElementById("initial-segmentation");
 const forcedTheme = document.body.dataset.forceTheme || "";
 const savedTheme = forcedTheme || localStorage.getItem("site_theme") || "default";
 const motionEnabled = localStorage.getItem("site_motion_enabled");
@@ -116,6 +118,8 @@ let currentSegmentVisualMode = "original";
 let focusModeEnabled = false;
 let focusModalOpen = false;
 let focusModalCloseTimer = null;
+let autoSegmentationStarted = false;
+let savedSegmentationPayload = null;
 
 function idleAnalysisActionLabel() {
     return segmentationOnlyMode ? "Run Segmentation" : "Analyze Cropped Area";
@@ -172,6 +176,21 @@ function requestEmbeddedResultRefresh() {
     window.location.reload();
 }
 
+function returnToUploadWorkspace() {
+    if (isEmbeddedResultView() && window.parent !== window) {
+        closeFocusModal();
+        window.parent.postMessage(
+            {
+                type: "agrivision:return-to-upload",
+                resultId,
+            },
+            window.location.origin,
+        );
+        return;
+    }
+    window.location.href = "/dashboard?window=upload";
+}
+
 function formatStatusMetricValue(value, suffix = "") {
     if (value === null || value === undefined || value === "") {
         return "-";
@@ -210,6 +229,28 @@ function formatHealthBandLabel(value) {
         .join(" ");
 }
 
+const STAGE_RATING_MAP = {
+    "early vegetative": 1,
+    "late vegetative": 2,
+    tasseling: 3,
+    "mature (senescence)": 4,
+};
+
+const METRIC_RATING_BANDS = [
+    { max: 19.99, rating: 1, label: "Very Low" },
+    { max: 39.99, rating: 2, label: "Low" },
+    { max: 59.99, rating: 3, label: "Fair" },
+    { max: 79.99, rating: 4, label: "Good" },
+    { max: Number.POSITIVE_INFINITY, rating: 5, label: "Strong" },
+];
+
+const HEALTH_RATING_MAP = {
+    healthy: "5/5 Strong",
+    unhealthy_damaged: "2/5 Needs Attention",
+    mature: "3/5 Mature-Stage Look",
+    empty: "1/5 No Usable Crop",
+};
+
 function formatPhenologicalStageLabel(source = null) {
     const stageSource = source && typeof source === "object" ? source : fieldStageState;
     const growthStageLabel = String(stageSource.growth_stage_label || "").trim();
@@ -233,15 +274,52 @@ function getFieldStageProbability() {
     return Number.isFinite(numeric) ? numeric : 0;
 }
 
+function formatStageRatingValue(source = null) {
+    const stageLabel = formatPhenologicalStageLabel(source);
+    const stageKey = String(stageLabel || "").trim().toLowerCase();
+    const rating = STAGE_RATING_MAP[stageKey];
+    if (!rating) {
+        return stageLabel;
+    }
+    return `${rating}/4 ${stageLabel}`;
+}
+
+function formatMetricRatingValue(value, suffix = "") {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+        return "-";
+    }
+    const clamped = Math.max(0, Math.min(100, numeric));
+    const band = METRIC_RATING_BANDS.find((item) => clamped <= item.max) || METRIC_RATING_BANDS[METRIC_RATING_BANDS.length - 1];
+    const rawValue = formatStatusMetricValue(clamped, suffix);
+    return `${band.rating}/5 ${band.label} (${rawValue})`;
+}
+
+function formatHealthRatingValue(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    return HEALTH_RATING_MAP[normalized] || formatHealthBandLabel(value);
+}
+
+function getSegmentRecommendationItems(segment) {
+    const items = Array.isArray(segment?.recommendation_items)
+        ? segment.recommendation_items.filter((item) => String(item || "").trim())
+        : [];
+    if (items.length) {
+        return items;
+    }
+    const fallback = String(segment?.recommendation || "").trim();
+    return fallback ? [fallback] : [];
+}
+
 function buildSegmentStatusItems(segment) {
     if (!segment) {
         return null;
     }
-    const fieldStageValue = getFieldStageDisplayLabel();
+    const fieldStageValue = formatStageRatingValue(fieldStageState);
     if (segment.empty) {
         return [
             { label: "Phenological Stage", value: fieldStageValue },
-            { label: "Healthiness", value: "No usable crop" },
+            { label: "Healthiness", value: formatHealthRatingValue("empty") },
             { label: "Canopy Cover", value: "-" },
             { label: "Vigor", value: "-" },
             { label: "Stand Uniformity", value: "-" },
@@ -250,11 +328,11 @@ function buildSegmentStatusItems(segment) {
     }
     return [
         { label: "Phenological Stage", value: fieldStageValue },
-        { label: "Healthiness", value: formatHealthBandLabel(segment.health_band) },
-        { label: "Canopy Cover", value: formatStatusMetricValue(segment.canopy_cover_pct, "%") },
-        { label: "Vigor", value: formatStatusMetricValue(segment.vegetation_vigor_score, "/100") },
-        { label: "Stand Uniformity", value: formatStatusMetricValue(segment.stand_uniformity_score, "/100") },
-        { label: "Green Coverage", value: formatStatusMetricValue(segment.green_coverage_pct, "%") },
+        { label: "Healthiness", value: formatHealthRatingValue(segment.health_band) },
+        { label: "Canopy Cover", value: formatMetricRatingValue(segment.canopy_cover_pct, "%") },
+        { label: "Vigor", value: formatMetricRatingValue(segment.vegetation_vigor_score, "/100") },
+        { label: "Stand Uniformity", value: formatMetricRatingValue(segment.stand_uniformity_score, "/100") },
+        { label: "Green Coverage", value: formatMetricRatingValue(segment.green_coverage_pct, "%") },
     ];
 }
 
@@ -266,6 +344,8 @@ function notifyParentSegmentStatus(segment = null) {
             resultId,
             status: buildSegmentStatusItems(segment),
             segmentId: segment?.segment_id || "",
+            possibleIssue: segment?.possible_issue || "",
+            recommendations: segment ? getSegmentRecommendationItems(segment) : [],
         },
         window.location.origin,
     );
@@ -321,6 +401,15 @@ try {
 try {
     const parsed = JSON.parse(initialFieldStageEl?.textContent || "{}");
     fieldStageState = { ...fieldStageState, ...parsed };
+} catch (_) {
+    // ignore malformed json
+}
+
+try {
+    const parsed = JSON.parse(initialSegmentationEl?.textContent || "null");
+    if (parsed && typeof parsed === "object") {
+        savedSegmentationPayload = parsed;
+    }
 } catch (_) {
     // ignore malformed json
 }
@@ -430,7 +519,11 @@ function getAdaptiveSegmentRecommendation(segment) {
     if (!segment || segment.empty) {
         return segment?.recommendation || "-";
     }
-    return segment.recommendation || "The model likely sees this segment as stable, but it is still best to verify suspicious areas in person.";
+    const items = getSegmentRecommendationItems(segment);
+    if (items.length) {
+        return items.join(" ");
+    }
+    return "Review this segment on-site before taking action.";
 }
 
 function getSegmentDamageClass(segment) {
@@ -621,7 +714,7 @@ function setAdvancedPanelFromSegment(segment) {
     if (advGreenCoverage) advGreenCoverage.textContent = `${segment.green_coverage_pct}%`;
     if (advStressZone) advStressZone.textContent = `${segment.estimated_stress_zone_pct}%`;
     if (advVigorScore) advVigorScore.textContent = `${segment.vegetation_vigor_score}/100`;
-    if (advNextScan) advNextScan.textContent = segment.recommendation || "Rescan this segment in 3-5 days.";
+    if (advNextScan) advNextScan.textContent = getSegmentRecommendationItems(segment)[0] || "Rescan this segment in 3-5 days.";
 
     if (advIdxVari) advIdxVari.textContent = `VARI: ${segment.vari ?? "-"}`;
     if (advIdxGli) advIdxGli.textContent = `GLI: ${segment.gli ?? "-"}`;
@@ -663,7 +756,9 @@ function setFocusMode(enabled) {
     focusModeEnabled = Boolean(enabled);
     toggleFocusModeButton?.classList.toggle("viewer-btn-active", focusModeEnabled);
     toggleFocusModeButton?.setAttribute("aria-pressed", String(focusModeEnabled));
-    toggleFocusModeButton.textContent = focusModeEnabled ? "Advanced Mode On" : "Advanced Mode";
+    if (toggleFocusModeButton) {
+        toggleFocusModeButton.textContent = focusModeEnabled ? "Advanced Mode On" : "Advanced Mode";
+    }
     closeFocusModal();
 }
 
@@ -707,6 +802,7 @@ function fitFrameToViewport(frameEl, imgEl, options = {}) {
 
     const minHeight = Number(options.minHeight || 260);
     const viewportOffset = Number(options.viewportOffset || 240);
+    const minWidthRatio = Math.min(1, Math.max(0, Number(options.minWidthRatio || 0)));
     const parentWidth = Math.max(
         1,
         Math.floor(frameEl.parentElement?.clientWidth || frameEl.clientWidth || naturalWidth),
@@ -719,6 +815,14 @@ function fitFrameToViewport(frameEl, imgEl, options = {}) {
     if (height > maxHeight) {
         height = maxHeight;
         width = height * (naturalWidth / naturalHeight);
+    }
+
+    if (minWidthRatio > 0) {
+        const minWidth = parentWidth * minWidthRatio;
+        if (width < minWidth) {
+            width = Math.min(parentWidth, minWidth);
+            height = width * (naturalHeight / naturalWidth);
+        }
     }
 
     frameEl.style.width = `${Math.round(Math.min(width, parentWidth))}px`;
@@ -788,12 +892,7 @@ function renderFocusModeDetails(segment) {
     renderFocusSegmentPreview(segment);
     const parameters = [
         ["Health score", segment.health_band === "mature" ? "MATURE" : formatScore(segment.health_score)],
-        ["Prediction confidence", formatPercentFromProbability(segment.confidence)],
-        ["Healthy probability", formatPercentFromProbability(segment.healthy_probability)],
-        ["Unhealthy/damaged probability", formatPercentFromProbability(segment.unhealthy_damaged_probability)],
-        ["Field growth stage", getFieldStageRawLabel()],
-        ["Field-stage probability", formatPercentFromProbability(getFieldStageProbability())],
-        ["Mature-stage probability", formatPercentFromProbability(fieldStageState.maturity_probability)],
+        ["Field growth stage", formatStageRatingValue(fieldStageState)],
         ["Green coverage", formatScore(segment.green_coverage_pct, "%")],
         ["Stress zone", formatScore(segment.estimated_stress_zone_pct, "%")],
         ["Vigor", formatScore(segment.vegetation_vigor_score)],
@@ -810,12 +909,8 @@ function renderFocusModeDetails(segment) {
         .join("");
 
     const recommendations = [
-        segment.recommendation,
+        ...getSegmentRecommendationItems(segment),
         segment.possible_issue,
-        `Model finding: likely ${String(segment.health_band || "").replaceAll("_", " ")} with confidence ${formatPercentFromProbability(segment.confidence)} while the field-wide stage model points to ${getFieldStageRawLabel() || "an unknown stage"}.`,
-        segment.unhealthy_damaged_probability >= 0.5
-            ? "Action note: verify the flagged area on-site before applying targeted treatment."
-            : "Action note: maintain monitoring and compare this segment with surrounding cells on the next scan.",
     ].filter(Boolean);
     focusRecommendationList.innerHTML = recommendations.map((item) => `<li>${item}</li>`).join("");
 }
@@ -887,6 +982,7 @@ function normalizeSegmentPreviewFrame() {
     fitFrameToViewport(segmentVisualFrame, candidate, {
         minHeight: 260,
         viewportOffset: 320,
+        minWidthRatio: 0.85,
     });
     syncSegmentVisualGridToImage();
 }
@@ -1146,8 +1242,50 @@ function renderSegmentButtons(segments, grid) {
     syncSegmentVisualGridToImage();
 }
 
+function applySegmentationPayload(payload, successMessage) {
+    if (!payload || typeof payload !== "object") {
+        return false;
+    }
+    const hasRenderableData =
+        typeof payload.cropped_heatzone_data_url === "string" ||
+        Array.isArray(payload.segments);
+    if (!hasRenderableData) {
+        return false;
+    }
+
+    syncOriginalSegmentPreviewSource(payload.cropped_original_data_url || "");
+    if (croppedHeatzonePreview) {
+        if (payload.cropped_heatzone_data_url) {
+            croppedHeatzonePreview.src = payload.cropped_heatzone_data_url;
+        } else {
+            croppedHeatzonePreview.removeAttribute("src");
+        }
+    }
+    window.setTimeout(normalizeSegmentPreviewFrame, 50);
+    window.setTimeout(normalizeSegmentPreviewFrame, 180);
+
+    latestSegments = Array.isArray(payload.segments) ? payload.segments : [];
+    renderSegmentButtons(latestSegments, payload.grid || { rows: 4, cols: 4 });
+    if (segmentationOnlyMode) {
+        savedSegmentationPayload = payload;
+    }
+    setCropStatus(successMessage, "success");
+    setCropViewMode("results");
+    return true;
+}
+
+function maybeRestoreStoredSegmentation(
+    successMessage = "Saved segmentation loaded. Select a segment to inspect its recommendation.",
+) {
+    if (!segmentationOnlyMode || !savedSegmentationPayload) return false;
+    const restored = applySegmentationPayload(savedSegmentationPayload, successMessage);
+    if (restored) {
+        autoSegmentationStarted = true;
+    }
+    return restored;
+}
+
 async function runCroppedAnalysis() {
-    if (!runCroppedAnalysisButton) return;
     if (handlePoints.length !== 4) {
         resetDefaultCropShape();
     }
@@ -1185,28 +1323,27 @@ async function runCroppedAnalysis() {
         if (!response.ok) {
             throw new Error(payload.error || "Cropped analysis failed.");
         }
-
-        syncOriginalSegmentPreviewSource(payload.cropped_original_data_url || "");
-        if (croppedHeatzonePreview) {
-            croppedHeatzonePreview.src = payload.cropped_heatzone_data_url || "";
-        }
-        window.setTimeout(normalizeSegmentPreviewFrame, 50);
-        window.setTimeout(normalizeSegmentPreviewFrame, 180);
-
-        latestSegments = Array.isArray(payload.segments) ? payload.segments : [];
-        renderSegmentButtons(latestSegments, payload.grid || { rows: 4, cols: 4 });
-        setCropStatus(
+        applySegmentationPayload(
+            payload,
             segmentationOnlyMode
-                ? "Segmentation complete. Select a segment to inspect its recommendation."
+                ? "Segmentation ready. Select a segment to inspect its recommendation."
                 : "Done. Review the segment table below and select a row to update the recommendation.",
-            "success",
         );
-        setCropViewMode("results");
     } catch (error) {
         setCropStatus(String(error.message || (segmentationOnlyMode ? "Segmentation failed." : "Cropped analysis failed.")), "error");
     } finally {
         setAnalyzingState(false);
     }
+}
+
+function maybeAutoRunSegmentation() {
+    if (!segmentationOnlyMode || autoSegmentationStarted) return;
+    if (!cropSourceImage?.complete || cropSourceImage.naturalWidth <= 0) return;
+    if (maybeRestoreStoredSegmentation()) return;
+    autoSegmentationStarted = true;
+    window.setTimeout(() => {
+        runCroppedAnalysis();
+    }, 0);
 }
 
 function updateRecommendationProgress() {
@@ -1344,6 +1481,7 @@ toggleAdvancedResultsButton?.addEventListener("click", () => {
 
 segmentViewOriginalButton?.addEventListener("click", () => setSegmentVisualMode("original"));
 segmentViewHeatzoneButton?.addEventListener("click", () => setSegmentVisualMode("heatzone"));
+returnToUploadButton?.addEventListener("click", returnToUploadWorkspace);
 toggleFocusModeButton?.addEventListener("click", () => setFocusMode(!focusModeEnabled));
 closeFocusModeButton?.addEventListener("click", () => closeFocusModal());
 segmentFocusBackdrop?.addEventListener("click", () => closeFocusModal());
@@ -1363,16 +1501,17 @@ if (pdfDownloadLink) {
 }
 
 if (cropSourceImage && cropOverlayCanvas) {
-    if (cropSourceImage.complete) {
+    const handleSegmentationSourceReady = () => {
         syncOriginalSegmentPreviewSource();
         resizeCropCanvas();
         resetDefaultCropShape();
+        maybeAutoRunSegmentation();
+    };
+
+    if (cropSourceImage.complete) {
+        handleSegmentationSourceReady();
     } else {
-        cropSourceImage.addEventListener("load", () => {
-            syncOriginalSegmentPreviewSource();
-            resizeCropCanvas();
-            resetDefaultCropShape();
-        });
+        cropSourceImage.addEventListener("load", handleSegmentationSourceReady);
     }
 
     window.addEventListener("resize", () => {
@@ -1443,17 +1582,20 @@ if (cropSourceImage && cropOverlayCanvas) {
         notifyParentSegmentStatus(null);
         setCropStatus(
             segmentationOnlyMode
-                ? "Segmentation results cleared. Click Run Segmentation to analyze the whole image again."
+                ? "Segmentation results cleared. Click Reload Segments to restore the saved view."
                 : "Segment results cleared. Adjust crop and analyze again.",
         );
-        setCropViewMode("edit");
+        setCropViewMode(segmentationOnlyMode ? "results" : "edit");
     });
 
     showCropToolButton?.addEventListener("click", () => {
         if (segmentationOnlyMode) {
             closeFocusModal();
+            if (maybeRestoreStoredSegmentation("Saved segmentation restored.")) {
+                return;
+            }
             setCropViewMode("edit");
-            setCropStatus("Segmentation is ready. Click Run Segmentation to analyze the whole image.");
+            runCroppedAnalysis();
             return;
         }
         if (isEmbeddedResultView()) {

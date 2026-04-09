@@ -29,6 +29,18 @@
         <span></span>
     </button>
 
+    <button
+        class="sidebar-visibility-toggle"
+        id="sidebar-visibility-toggle"
+        type="button"
+        aria-controls="dashboard-sidebar"
+        aria-expanded="true"
+        aria-label="Hide navbar"
+        title="Hide navbar"
+    >
+        &lt;
+    </button>
+
     <div class="dashboard-shell">
         <aside class="dashboard-sidebar" id="dashboard-sidebar">
             <div class="sidebar-brand">
@@ -154,26 +166,36 @@
                         </div>
 
                         <div class="upload-result-state" id="upload-result-state" hidden>
-                            <div class="result-toolbar">
-                                <button class="secondary-button" id="back-to-upload" type="button">UPLOAD AGAIN</button>
-                            </div>
-
-                            <div class="embedded-result-shell">
+                            <article class="insight-card embedded-result-shell">
                                 <iframe
                                     id="result-embed-frame"
                                     class="result-embed-frame"
                                     title="AgriVision crop segmentation result"
                                     loading="eager"
                                 ></iframe>
-                            </div>
+                            </article>
+
+                            <article class="insight-card result-recommendation-card">
+                                <div class="card-header">
+                                    <div>
+                                        <p class="section-label">Selected Segment</p>
+                                        <h3>Recommendations</h3>
+                                    </div>
+                                    <span class="state-chip recommendation-segment-chip" id="recommendation-segment-chip">Segment -</span>
+                                </div>
+                                <p class="recommendation-context" id="recommendation-context">Open a result to load segment recommendations here.</p>
+                                <ul class="recommendation-list" id="recommendation-list">
+                                    <li>Open a result to load segment recommendations here.</li>
+                                </ul>
+                            </article>
                         </div>
                     </section>
 
                     <aside class="insight-column">
-                        <article class="insight-card">
+                        <article class="insight-card status-summary-card">
                             <div class="card-header">
                                 <p class="section-label">Status</p>
-                                <h3>Farmer-friendly status</h3>
+                                <h3>Field Status Summary</h3>
                             </div>
                             <ul class="status-list" id="status-list">
                                 <li class="status-item"><span>Phenological Stage</span><strong>-</strong></li>
@@ -182,16 +204,6 @@
                                 <li class="status-item"><span>Vigor</span><strong>-</strong></li>
                                 <li class="status-item"><span>Stand Uniformity</span><strong>-</strong></li>
                                 <li class="status-item"><span>Green Coverage</span><strong>-</strong></li>
-                            </ul>
-                        </article>
-
-                        <article class="insight-card">
-                            <div class="card-header">
-                                <p class="section-label">Recommendation</p>
-                                <h3>Short action guide</h3>
-                            </div>
-                            <ul class="recommendation-list" id="recommendation-list">
-                                <li>Upload an image or open one from history to view recommendations here.</li>
                             </ul>
                         </article>
                     </aside>

@@ -17,7 +17,6 @@
                 <div class="crop-draw-pane">
                     <div class="crop-draw-toolbar">
                         <button id="clear-crop-results" class="viewer-btn" type="button">Clear Segments</button>
-                        <button id="run-cropped-analysis" class="viewer-btn viewer-btn-active" type="button">Run Segmentation</button>
                     </div>
                     <div class="crop-draw-frame" id="crop-draw-frame">
                         <img id="crop-source-image" src="{{ result.original_url }}" alt="Original image for full-field segmentation">
@@ -30,7 +29,7 @@
                             </div>
                         </div>
                     </div>
-                    <p id="crop-analysis-status" class="crop-analysis-status">Segmentation now uses the entire image. Click <strong>Run Segmentation</strong> to generate the field segments.</p>
+                    <p id="crop-analysis-status" class="crop-analysis-status">Saved segmentation loads automatically when this result opens.</p>
                 </div>
 
                 <div class="crop-output-pane">
@@ -40,11 +39,12 @@
                             <button id="segment-view-heatzone" class="viewer-btn" type="button">AI Image</button>
                         </div>
                         <button id="toggle-focus-mode" class="viewer-btn" type="button" aria-pressed="false" aria-controls="segment-focus-modal">Advanced Mode</button>
-                        <button id="show-crop-tool" class="viewer-btn" type="button">Segment Again</button>
+                        <button id="show-crop-tool" class="viewer-btn" type="button">Reload Segments</button>
                     </div>
                     <section class="segment-visual-section" aria-labelledby="segment-visual-title">
                         <div class="segment-visual-header">
                             <h3 id="segment-visual-title">Segment View</h3>
+                            <button id="return-to-upload" class="viewer-btn" type="button">Upload Again</button>
                         </div>
                         <div class="segment-visual-frame is-original" id="segment-visual-frame">
                             <img id="cropped-original-preview" alt="Original field preview">
@@ -57,11 +57,6 @@
                             <span class="legend-pill legend-healthy">Green - Healthy</span>
                         </div>
                     </section>
-                    <div class="segment-results-summary crop-recommendation-card">
-                        <h3>Specific Segment Recommendation</h3>
-                        <p class="segment-summary-selected"><strong>Selected Segment:</strong> <span id="rec-seg-id">-</span></p>
-                        <p class="segment-summary-reco"><strong>Recommendation:</strong> <span id="rec-seg-reco">-</span></p>
-                    </div>
                 </div>
             </div>
         </section>
@@ -99,6 +94,7 @@
 
     <script id="initial-personalization" type="application/json">{{ personalization|tojson }}</script>
     <script id="initial-field-stage" type="application/json">{{ field_stage|tojson }}</script>
+    <script id="initial-segmentation" type="application/json">{{ cached_segmentation|tojson }}</script>
     <script src="{{ url_for('static', filename='js/result-view.js') }}" defer></script>
 </body>
 </html>

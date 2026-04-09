@@ -73,6 +73,13 @@ body {
     min-height: 100vh;
 }
 
+body[data-theme="minimalist"] {
+    background:
+        radial-gradient(circle at top left, rgba(42, 111, 151, 0.16), transparent 26%),
+        radial-gradient(circle at bottom right, rgba(24, 63, 86, 0.12), transparent 28%),
+        linear-gradient(180deg, #f2f4f5 0%, #edf3f7 100%);
+}
+
 body.embedded-result-body {
     min-height: 0;
     background: transparent;
@@ -179,7 +186,7 @@ body.embedded-result-body .crop-draw-frame {
 }
 
 body.embedded-result-body .segment-visual-frame {
-    min-height: 260px;
+    min-height: clamp(280px, 32vw, 520px);
 }
 
 body.embedded-result-body .crop-preview-card,
@@ -242,6 +249,7 @@ body.embedded-result-body .segment-visual-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 0.5rem;
 }
 
@@ -249,6 +257,11 @@ body.embedded-result-body .segment-visual-header h3 {
     margin: 0;
     font-size: clamp(0.86rem, 0.42vw + 0.76rem, 1rem);
     line-height: 1.25;
+}
+
+body.embedded-result-body .segment-visual-header .viewer-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 body.embedded-result-body .segment-mask-legend {
@@ -1821,6 +1834,36 @@ body[data-theme="minimalist"] .result-topbar {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 251, 0.96) 100%);
     border-bottom-color: #d8e1e7;
     box-shadow: 0 8px 18px rgba(24, 33, 38, 0.08);
+}
+
+body[data-theme="minimalist"] .viewer-btn {
+    background: rgba(24, 33, 38, 0.03);
+    border-color: #d7e0e6;
+    color: var(--text);
+}
+
+body[data-theme="minimalist"] .back-link,
+body[data-theme="minimalist"] .pdf-btn,
+body[data-theme="minimalist"] .rerun-btn {
+    color: #f7fbff;
+    box-shadow: 0 12px 26px rgba(24, 33, 38, 0.1);
+}
+
+body[data-theme="minimalist"] .crop-draw-frame,
+body[data-theme="minimalist"] .segment-visual-frame {
+    background: linear-gradient(180deg, #ffffff, #edf3f7);
+}
+
+body[data-theme="minimalist"] .analysis-loading-overlay {
+    background: linear-gradient(180deg, rgba(242, 244, 245, 0.82), rgba(237, 243, 247, 0.9));
+}
+
+body[data-theme="minimalist"] .analysis-loading-copy strong {
+    color: #182126;
+}
+
+body[data-theme="minimalist"] .analysis-loading-copy span {
+    color: #4b5963;
 }
 
 body[data-theme="minimalist"] .viewer-panel,

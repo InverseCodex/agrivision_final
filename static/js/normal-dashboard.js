@@ -13,9 +13,12 @@
 
     const body = document.body;
     const mobileNavToggle = document.getElementById("mobile-nav-toggle");
+    const sidebarVisibilityToggle = document.getElementById("sidebar-visibility-toggle");
     const sidebar = document.getElementById("dashboard-sidebar");
     const navButtons = Array.from(document.querySelectorAll(".nav-button"));
     const contentWindows = Array.from(document.querySelectorAll(".content-window"));
+    const desktopNavBreakpoint = 920;
+    const sidebarHiddenStorageKey = "agrivision_sidebar_hidden";
 
     const uploadForm = document.getElementById("upload-form");
     const fileInput = document.getElementById("image-upload");
@@ -27,6 +30,7 @@
     const fileSizeLabel = document.getElementById("file-size");
     const previewImage = document.getElementById("preview-image");
     const previewPlaceholder = document.getElementById("preview-placeholder");
+    const uploadLayout = document.querySelector(".upload-layout");
     const uploadStage = document.querySelector(".upload-stage");
     const uploadFormState = document.getElementById("upload-form-state");
     const uploadResultState = document.getElementById("upload-result-state");
@@ -36,6 +40,8 @@
     const resultEmbedFrame = document.getElementById("result-embed-frame");
     const statusList = document.getElementById("status-list");
     const recommendationList = document.getElementById("recommendation-list");
+    const recommendationContext = document.getElementById("recommendation-context");
+    const recommendationSegmentChip = document.getElementById("recommendation-segment-chip");
     const backToUploadButton = document.getElementById("back-to-upload");
 
     const historyGrid = document.getElementById("history-grid");
@@ -47,6 +53,12 @@
     let currentWindowName = "home";
     let frameMutationObserver = null;
     let frameResizeObserver = null;
+    const recommendationEmptyText = "Open a result to load segment recommendations here.";
+    const recommendationPendingText = "Segmentation is running. Recommendations will appear after a segment is selected.";
+
+    function getEmbeddedResultMinimumHeight() {
+        return window.innerWidth <= 640 ? 360 : 420;
+    }
 
     function setEmbeddedAdvancedMode(open) {
         const active = Boolean(open);
@@ -88,6 +100,48 @@
     function toggleMobileNav() {
         const isOpen = body.classList.toggle("nav-open");
         mobileNavToggle?.setAttribute("aria-expanded", String(isOpen));
+    }
+
+    function isDesktopViewport() {
+        return window.innerWidth > desktopNavBreakpoint;
+    }
+
+    function updateSidebarVisibilityButton() {
+        if (!sidebarVisibilityToggle) return;
+        const hidden = isDesktopViewport() && body.classList.contains("sidebar-hidden");
+        sidebarVisibilityToggle.textContent = hidden ? ">" : "<";
+        sidebarVisibilityToggle.setAttribute("aria-expanded", String(!hidden));
+        sidebarVisibilityToggle.setAttribute("aria-label", hidden ? "Show navbar" : "Hide navbar");
+        sidebarVisibilityToggle.setAttribute("title", hidden ? "Show navbar" : "Hide navbar");
+    }
+
+    function setDesktopSidebarHidden(hidden, persistPreference = true) {
+        const nextHidden = Boolean(hidden) && isDesktopViewport();
+        body.classList.toggle("sidebar-hidden", nextHidden);
+        if (persistPreference) {
+            try {
+                localStorage.setItem(sidebarHiddenStorageKey, String(nextHidden));
+            } catch (_) {
+                // Ignore storage failures.
+            }
+        }
+        updateSidebarVisibilityButton();
+    }
+
+    function restoreDesktopSidebarPreference() {
+        if (!isDesktopViewport()) {
+            body.classList.remove("sidebar-hidden");
+            updateSidebarVisibilityButton();
+            return;
+        }
+
+        let preferredHidden = false;
+        try {
+            preferredHidden = localStorage.getItem(sidebarHiddenStorageKey) === "true";
+        } catch (_) {
+            preferredHidden = false;
+        }
+        setDesktopSidebarHidden(preferredHidden, false);
     }
 
     function updateUrl(windowName, resultId = "") {
@@ -180,6 +234,7 @@
     function showUploadState() {
         currentResult = null;
         setEmbeddedAdvancedMode(false);
+        uploadLayout?.classList.remove("is-result-mode");
         uploadStage?.classList.remove("is-result-mode");
         uploadFormState.hidden = false;
         uploadFormState.removeAttribute("hidden");
@@ -215,10 +270,25 @@
 
     function renderRecommendations(result = null) {
         if (!recommendationList) return;
-        const items = result?.recommendations?.length
-            ? result.recommendations
-            : ["Upload an image or open one from history to view recommendations here."];
+        let items = [recommendationEmptyText];
+        let contextText = recommendationEmptyText;
+        let segmentLabel = "Segment -";
 
+        if (result?.recommendations?.length) {
+            items = result.recommendations;
+            contextText = result.context || "Stage-aware guidance for the selected segment.";
+            segmentLabel = result.segmentId ? `Segment ${result.segmentId}` : segmentLabel;
+        } else if (result?.pending) {
+            items = [recommendationPendingText];
+            contextText = recommendationPendingText;
+        }
+
+        if (recommendationContext) {
+            recommendationContext.textContent = contextText;
+        }
+        if (recommendationSegmentChip) {
+            recommendationSegmentChip.textContent = segmentLabel;
+        }
         recommendationList.innerHTML = items.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
     }
 
@@ -239,7 +309,7 @@
         const bodyEl = doc.body;
         const docEl = doc.documentElement;
         const nextHeight = Math.max(
-            760,
+            getEmbeddedResultMinimumHeight(),
             bodyEl?.scrollHeight || 0,
             docEl?.scrollHeight || 0,
             bodyEl?.offsetHeight || 0,
@@ -288,6 +358,7 @@
     function renderResult(result, activateUploadWindow = true) {
         currentResult = result;
         setEmbeddedAdvancedMode(false);
+        uploadLayout?.classList.add("is-result-mode");
         uploadStage?.classList.add("is-result-mode");
         uploadFormState.hidden = true;
         uploadFormState.setAttribute("hidden", "hidden");
@@ -296,8 +367,8 @@
         uploadStageTitle.textContent = "Image View";
         uploadStateChip.textContent = result.health_band_label || "Viewing result";
 
-        renderStatus();
-        renderRecommendations(result);
+        renderStatus(result);
+        renderRecommendations({ pending: true });
         loadEmbeddedResult(result.image_id || "");
 
         if (activateUploadWindow) {
@@ -528,9 +599,12 @@
     });
 
     mobileNavToggle?.addEventListener("click", toggleMobileNav);
+    sidebarVisibilityToggle?.addEventListener("click", () => {
+        setDesktopSidebarHidden(!body.classList.contains("sidebar-hidden"));
+    });
 
     document.addEventListener("click", (event) => {
-        if (window.innerWidth > 920 || !body.classList.contains("nav-open")) return;
+        if (window.innerWidth > desktopNavBreakpoint || !body.classList.contains("nav-open")) return;
         const target = event.target;
         if (!(target instanceof Node)) return;
         if (sidebar?.contains(target) || mobileNavToggle?.contains(target)) return;
@@ -545,6 +619,10 @@
             setEmbeddedAdvancedMode(Boolean(data.open));
             return;
         }
+        if (data.type === "agrivision:return-to-upload") {
+            showUploadState();
+            return;
+        }
         if (data.type === "agrivision:segment-status") {
             const messageResultId = String(data.resultId || "");
             if (!currentResult?.image_id || currentResult.image_id !== messageResultId) {
@@ -553,7 +631,16 @@
             if (Array.isArray(data.status) && data.status.length) {
                 renderStatus({ status: data.status });
             } else {
-                renderStatus();
+                renderStatus(currentResult);
+            }
+            if (Array.isArray(data.recommendations) && data.recommendations.length) {
+                renderRecommendations({
+                    recommendations: data.recommendations,
+                    context: String(data.possibleIssue || ""),
+                    segmentId: String(data.segmentId || ""),
+                });
+            } else {
+                renderRecommendations(currentResult ? { pending: true } : null);
             }
             return;
         }
@@ -608,8 +695,12 @@
     historyGrid?.addEventListener("click", handleHistoryAction);
 
     window.addEventListener("resize", () => {
-        if (window.innerWidth > 920) {
+        if (window.innerWidth > desktopNavBreakpoint) {
             closeMobileNav();
+            restoreDesktopSidebarPreference();
+        } else {
+            body.classList.remove("sidebar-hidden");
+            updateSidebarVisibilityButton();
         }
         resizeEmbeddedResultFrame();
     });
@@ -623,6 +714,7 @@
     renderRecommendations();
     resetFileSelection();
     applyHistoryFilters();
+    restoreDesktopSidebarPreference();
 
     const initialWindow = ["home", "upload", "history"].includes(initialState.initialWindow)
         ? initialState.initialWindow

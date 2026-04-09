@@ -1,13 +1,13 @@
 :root {
-    --bg-1: #08001a;
-    --bg-2: #12002b;
-    --panel: rgba(16, 8, 40, 0.78);
-    --panel-border: rgba(91, 255, 219, 0.45);
-    --text: #f4eeff;
-    --muted: #d9cbff;
-    --accent: #00f5d4;
-    --accent-2: #00bbf9;
-    --focus: #7cf7ff;
+    --bg-1: #f2f4f5;
+    --bg-2: #edf3f7;
+    --panel: rgba(255, 255, 255, 0.94);
+    --panel-border: rgba(24, 33, 38, 0.1);
+    --text: #182126;
+    --muted: #4b5963;
+    --accent: #2a6f97;
+    --accent-2: #215a7a;
+    --focus: rgba(42, 111, 151, 0.28);
 }
 
 * {
@@ -20,8 +20,9 @@ body.auth-page {
     min-height: 100vh;
     color: var(--text);
     background:
-        linear-gradient(130deg, rgba(7, 3, 24, 0.9), rgba(5, 1, 20, 0.84)),
-        url("../assets/backgrounds/farming-neon.svg") center / cover no-repeat fixed;
+        radial-gradient(circle at top left, rgba(42, 111, 151, 0.16), transparent 26%),
+        radial-gradient(circle at bottom right, rgba(24, 63, 86, 0.12), transparent 28%),
+        linear-gradient(180deg, var(--bg-1) 0%, var(--bg-2) 100%);
 }
 
 .auth-shell {
@@ -36,10 +37,10 @@ body.auth-page {
     padding: 2rem 1.75rem;
     border-radius: 1.2rem;
     border: 1px solid var(--panel-border);
-    background: linear-gradient(160deg, var(--panel), rgba(8, 4, 26, 0.9));
+    background: linear-gradient(160deg, var(--panel), rgba(248, 250, 251, 0.96));
     box-shadow:
-        0 24px 55px rgba(0, 0, 0, 0.45),
-        0 0 35px rgba(0, 245, 212, 0.18);
+        0 24px 55px rgba(24, 33, 38, 0.12),
+        0 0 0 1px rgba(255, 255, 255, 0.45);
     backdrop-filter: blur(8px);
 }
 
@@ -74,15 +75,15 @@ body.auth-page {
 }
 
 .auth-alert {
-    background: rgba(255, 77, 109, 0.16);
-    border: 1px solid rgba(255, 77, 109, 0.45);
-    color: #ffd7df;
+    background: rgba(180, 71, 92, 0.12);
+    border: 1px solid rgba(180, 71, 92, 0.24);
+    color: #8a3347;
 }
 
 .auth-success {
-    background: rgba(0, 245, 212, 0.14);
-    border: 1px solid rgba(0, 245, 212, 0.38);
-    color: #ccfff7;
+    background: rgba(42, 111, 151, 0.12);
+    border: 1px solid rgba(42, 111, 151, 0.2);
+    color: #215a7a;
 }
 
 .auth-form {
@@ -93,13 +94,13 @@ body.auth-page {
 .auth-form label {
     font-size: 0.9rem;
     font-weight: 600;
-    color: #d9f8ff;
+    color: var(--text);
 }
 
 .auth-form input {
-    border: 1px solid rgba(124, 247, 255, 0.26);
+    border: 1px solid rgba(24, 33, 38, 0.12);
     border-radius: 0.7rem;
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.82);
     color: var(--text);
     padding: 0.72rem 0.82rem;
     font-size: 0.95rem;
@@ -108,9 +109,9 @@ body.auth-page {
 }
 
 .auth-form input:focus {
-    border-color: var(--focus);
-    box-shadow: 0 0 0 3px rgba(124, 247, 255, 0.18);
-    background: rgba(255, 255, 255, 0.1);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--focus);
+    background: #ffffff;
 }
 
 .auth-form button {
@@ -118,7 +119,7 @@ body.auth-page {
     border: 0;
     border-radius: 0.75rem;
     padding: 0.78rem 0.9rem;
-    color: #061228;
+    color: #f7fbff;
     background: linear-gradient(90deg, var(--accent), var(--accent-2));
     font-weight: 800;
     font-size: 0.95rem;
@@ -128,7 +129,7 @@ body.auth-page {
 
 .auth-form button:hover {
     filter: brightness(1.05);
-    box-shadow: 0 10px 26px rgba(0, 187, 249, 0.3);
+    box-shadow: 0 10px 26px rgba(24, 63, 86, 0.18);
 }
 
 .auth-form button:active {

@@ -12,8 +12,11 @@ from analysis.vegetation_damage_model import (
     predict_vegetation_damage_from_rgb,
 )
 from app import (
+    _can_reuse_cached_segmentation_payload,
+    _prepare_cached_segmentation_payload,
     _default_full_selection_points,
     _extract_field_stage_model,
+    _is_default_full_selection,
     _is_full_frame_quad,
     _merge_field_stage_into_model_result,
     _masked_rgb_metrics,
@@ -187,9 +190,33 @@ class VegetationDamageModelTests(unittest.TestCase):
             [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
         )
 
+    def test_default_full_selection_detector_matches_exact_full_frame_points(self) -> None:
+        self.assertTrue(_is_default_full_selection(_default_full_selection_points()))
+        self.assertFalse(_is_default_full_selection([(0.02, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]))
+
     def test_full_frame_quad_detection_matches_image_corners(self) -> None:
         self.assertTrue(_is_full_frame_quad([(0, 0), (159, 0), (159, 95), (0, 95)], 160, 96))
         self.assertFalse(_is_full_frame_quad([(12, 6), (150, 6), (150, 90), (12, 90)], 160, 96))
+
+    def test_cached_segmentation_payload_keeps_cache_metadata_without_duplicate_original_data(self) -> None:
+        prepared = _prepare_cached_segmentation_payload(
+            {
+                "cropped_original_data_url": "data:image/png;base64,abc",
+                "cropped_heatzone_data_url": "data:image/png;base64,def",
+                "segments": [{"segment_id": "A1"}],
+            },
+            4,
+            4,
+            generated_at="2026-04-09T00:00:00Z",
+        )
+
+        self.assertNotIn("cropped_original_data_url", prepared)
+        self.assertEqual(prepared["cache_meta"]["mode"], "full-image")
+        self.assertEqual(prepared["cache_meta"]["grid_rows"], 4)
+        self.assertEqual(prepared["cache_meta"]["grid_cols"], 4)
+        self.assertEqual(prepared["cache_meta"]["generated_at"], "2026-04-09T00:00:00Z")
+        self.assertTrue(_can_reuse_cached_segmentation_payload(prepared, 4, 4))
+        self.assertFalse(_can_reuse_cached_segmentation_payload(prepared, 6, 4))
 
     def test_segment_analysis_preserves_selection_geometry_without_rectification(self) -> None:
         width, height = 128, 96
