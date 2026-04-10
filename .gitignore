@@ -9,6 +9,7 @@ tmp/
 data/results/
 analysis/evaluation_report/
 analysis/plots/
+cache/
 
 .tmp/
 .pytest_cache/
