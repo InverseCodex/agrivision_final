@@ -8,12 +8,15 @@ import textwrap
 import shutil
 import logging
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
+from time import monotonic
 from types import SimpleNamespace
 from typing import Any
 
-from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
+from flask import Flask, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from flask import Response
 from dotenv import load_dotenv
 from supabase import Client, create_client
@@ -25,8 +28,7 @@ from werkzeug.utils import secure_filename
 
 from analysis import (
     configure_model_paths,
-    predict_growth_stage_from_path,
-    predict_vegetation_damage_from_path,
+    predict_growth_stage_from_rgb,
     predict_vegetation_damage_from_rgb,
 )
 
@@ -151,6 +153,11 @@ ORTHO_MAX_EDGE_PX = 1400
 ORTHO_MIN_EDGE_PX = 220
 SEGMENTATION_CACHE_FILENAME = "segmentation-cache.json"
 SEGMENTATION_CACHE_VERSION = 1
+SIGNED_URL_CACHE_TTL_MARGIN_SECONDS = 60
+SIGNED_URL_LOOKUP_MAX_WORKERS = 4
+REMOTE_UPLOAD_MAX_WORKERS = 3
+SIGNED_URL_CACHE: dict[tuple[str, str, int], tuple[float, str]] = {}
+SIGNED_URL_CACHE_LOCK = Lock()
 
 
 def describe_supabase_auth_error(exc: Exception | None = None) -> str:
@@ -353,6 +360,34 @@ def upload_json_to_bucket(bucket: str, object_path: str, payload: dict[str, Any]
         return False, str(exc)
 
 
+def upload_bucket_assets(tasks: list[tuple[str, Any]]) -> dict[str, tuple[bool, str]]:
+    if not tasks:
+        return {}
+    if len(tasks) == 1:
+        label, task = tasks[0]
+        return {label: task()}
+
+    results: dict[str, tuple[bool, str]] = {}
+    with ThreadPoolExecutor(max_workers=min(REMOTE_UPLOAD_MAX_WORKERS, len(tasks))) as executor:
+        future_map = {executor.submit(task): label for label, task in tasks}
+        for future in as_completed(future_map):
+            label = future_map[future]
+            try:
+                results[label] = future.result()
+            except Exception as exc:
+                results[label] = (False, str(exc))
+    return results
+
+
+def _extract_signed_url(payload: Any) -> str:
+    if isinstance(payload, dict):
+        for k in ("signedURL", "signedUrl", "signed_url"):
+            value = payload.get(k)
+            if value:
+                return str(value)
+    return ""
+
+
 def signed_or_local_url(
     bucket: str,
     object_path: str | None,
@@ -361,12 +396,23 @@ def signed_or_local_url(
 ) -> str:
     if supabase is None or not object_path:
         return fallback_url
+    cache_key = (bucket, object_path, expires_in)
+    now = monotonic()
+    with SIGNED_URL_CACHE_LOCK:
+        cached = SIGNED_URL_CACHE.get(cache_key)
+        if cached is not None:
+            expires_at, cached_url = cached
+            if expires_at > now and cached_url:
+                return cached_url
+            SIGNED_URL_CACHE.pop(cache_key, None)
     try:
         signed = supabase.storage.from_(bucket).create_signed_url(object_path, expires_in)
-        if isinstance(signed, dict):
-            for k in ("signedURL", "signedUrl", "signed_url"):
-                if signed.get(k):
-                    return signed[k]
+        signed_url = _extract_signed_url(signed)
+        if signed_url:
+            ttl_seconds = max(30, expires_in - SIGNED_URL_CACHE_TTL_MARGIN_SECONDS)
+            with SIGNED_URL_CACHE_LOCK:
+                SIGNED_URL_CACHE[cache_key] = (now + ttl_seconds, signed_url)
+            return signed_url
     except Exception:
         pass
     return fallback_url
@@ -637,6 +683,67 @@ def require_bucket_upload(ok: bool, label: str, detail: str = "") -> None:
         raise RuntimeError(f"Supabase bucket upload failed for {label}{extra}.")
 
 
+def _build_supabase_result_entry(user_id: str, row: dict[str, Any], res: dict[str, Any]) -> dict[str, Any] | None:
+    original_ref = row.get("original_path", "")
+    heatzone_ref = row.get("heatzone_path", "")
+    if not original_ref or not heatzone_ref:
+        return None
+
+    personalization = read_result_personalization(res.get("analysis_json"))
+    display_title = personalization.get("title") or f"Result {row['image_id']}"
+    cached_original_path, cached_original_url = _cached_media_entry(
+        user_id,
+        row["image_id"],
+        f"original{Path(original_ref).suffix.lower() or '.jpg'}",
+    )
+    cached_heatzone_path, cached_heatzone_url = _cached_media_entry(user_id, row["image_id"], "heatzone.png")
+    return {
+        "image_id": row["image_id"],
+        "filename": row.get("filename", ""),
+        "created_at": row.get("uploaded_at") or res.get("created_at") or "",
+        "updated_at": row.get("updated_at") or res.get("updated_at") or "",
+        "original_url": cached_original_url if cached_original_path.exists() else "",
+        "heatzone_url": cached_heatzone_url if cached_heatzone_path.exists() else "",
+        "original_storage_path": original_ref,
+        "heatzone_storage_path": heatzone_ref,
+        "analysis_json": res.get("analysis_json"),
+        "summary": res.get("summary") or "Analysis pending",
+        "health_band": res.get("health_band") or "watch",
+        "health_score": res.get("health_score") or 0.0,
+        "confidence": res.get("confidence") or 0.0,
+        "analysis_json_path": "",
+        "display_title": display_title,
+    }
+
+
+def _hydrate_missing_result_media_urls(entries: list[dict[str, Any]]) -> None:
+    pending: list[tuple[dict[str, Any], str, str, str]] = []
+    for entry in entries:
+        if not entry.get("original_url") and entry.get("original_storage_path"):
+            pending.append((entry, "original_url", SUPABASE_BUCKET_ORIGINAL, entry["original_storage_path"]))
+        if not entry.get("heatzone_url") and entry.get("heatzone_storage_path"):
+            pending.append((entry, "heatzone_url", SUPABASE_BUCKET_HEATZONE, entry["heatzone_storage_path"]))
+
+    if not pending:
+        return
+    if len(pending) == 1:
+        entry, field_name, bucket, object_path = pending[0]
+        entry[field_name] = signed_or_local_url(bucket, object_path, "")
+        return
+
+    with ThreadPoolExecutor(max_workers=min(SIGNED_URL_LOOKUP_MAX_WORKERS, len(pending))) as executor:
+        future_map = {
+            executor.submit(signed_or_local_url, bucket, object_path, ""): (entry, field_name)
+            for entry, field_name, bucket, object_path in pending
+        }
+        for future in as_completed(future_map):
+            entry, field_name = future_map[future]
+            try:
+                entry[field_name] = future.result()
+            except Exception:
+                entry[field_name] = ""
+
+
 def load_user_results_from_supabase(user_id: str) -> list[dict[str, Any]] | None:
     if supabase is None:
         return None
@@ -664,35 +771,11 @@ def load_user_results_from_supabase(user_id: str) -> list[dict[str, Any]] | None
         merged: list[dict[str, Any]] = []
         for row in image_rows:
             res = result_rows.get(row["image_id"], {})
-            original_ref = row.get("original_path", "")
-            heatzone_ref = row.get("heatzone_path", "")
-            if not original_ref or not heatzone_ref:
-                continue
-            cached_original_path, cached_original_url = _cached_media_entry(user_id, row["image_id"], f"original{Path(original_ref).suffix.lower() or '.jpg'}")
-            cached_heatzone_path, cached_heatzone_url = _cached_media_entry(user_id, row["image_id"], "heatzone.png")
-            personalization = read_result_personalization(res.get("analysis_json"))
-            display_title = personalization.get("title") or f"Result {row['image_id']}"
-            entry = {
-                "image_id": row["image_id"],
-                "filename": row.get("filename", ""),
-                "created_at": row.get("uploaded_at") or res.get("created_at") or "",
-                "updated_at": row.get("updated_at") or res.get("updated_at") or "",
-                "original_url": cached_original_url if cached_original_path.exists() else signed_or_local_url(SUPABASE_BUCKET_ORIGINAL, original_ref, ""),
-                "heatzone_url": cached_heatzone_url if cached_heatzone_path.exists() else signed_or_local_url(SUPABASE_BUCKET_HEATZONE, heatzone_ref, ""),
-                "original_storage_path": original_ref,
-                "heatzone_storage_path": heatzone_ref,
-                "analysis_json": res.get("analysis_json"),
-                "summary": res.get("summary") or "Analysis pending",
-                "health_band": res.get("health_band") or "watch",
-                "health_score": res.get("health_score") or 0.0,
-                "confidence": res.get("confidence") or 0.0,
-                "analysis_json_path": "",
-                "display_title": display_title,
-            }
-            if not entry["original_url"] or not entry["heatzone_url"]:
-                continue
-            merged.append(entry)
-        return merged
+            entry = _build_supabase_result_entry(user_id, row, res)
+            if entry is not None:
+                merged.append(entry)
+        _hydrate_missing_result_media_urls(merged)
+        return [entry for entry in merged if entry["original_url"] and entry["heatzone_url"]]
     except Exception:
         return None
 
@@ -704,10 +787,21 @@ def ensure_temp_dir(user_id: str) -> Path:
 
 
 def load_user_results_index(user_id: str) -> list[dict[str, Any]]:
+    try:
+        request_cache = getattr(g, "_user_results_index_cache", None)
+        if request_cache is None:
+            request_cache = {}
+            g._user_results_index_cache = request_cache
+        if user_id in request_cache:
+            return request_cache[user_id]
+    except RuntimeError:
+        request_cache = None
+
     remote = load_user_results_from_supabase(user_id)
-    if remote is not None:
-        return remote
-    return []
+    items = remote if remote is not None else []
+    if request_cache is not None:
+        request_cache[user_id] = items
+    return items
 
 
 def load_single_result_entry_from_supabase(user_id: str, image_id: str) -> dict[str, Any] | None:
@@ -737,32 +831,10 @@ def load_single_result_entry_from_supabase(user_id: str, image_id: str) -> dict[
         result_rows = result_resp.data or []
         res = result_rows[0] if result_rows else {}
 
-        original_ref = row.get("original_path", "")
-        heatzone_ref = row.get("heatzone_path", "")
-        if not original_ref or not heatzone_ref:
+        entry = _build_supabase_result_entry(user_id, row, res)
+        if entry is None:
             return None
-
-        personalization = read_result_personalization(res.get("analysis_json"))
-        display_title = personalization.get("title") or f"Result {row['image_id']}"
-        cached_original_path, cached_original_url = _cached_media_entry(user_id, row["image_id"], f"original{Path(original_ref).suffix.lower() or '.jpg'}")
-        cached_heatzone_path, cached_heatzone_url = _cached_media_entry(user_id, row["image_id"], "heatzone.png")
-        entry = {
-            "image_id": row["image_id"],
-            "filename": row.get("filename", ""),
-            "created_at": row.get("uploaded_at") or res.get("created_at") or "",
-            "updated_at": row.get("updated_at") or res.get("updated_at") or "",
-            "original_url": cached_original_url if cached_original_path.exists() else signed_or_local_url(SUPABASE_BUCKET_ORIGINAL, original_ref, ""),
-            "heatzone_url": cached_heatzone_url if cached_heatzone_path.exists() else signed_or_local_url(SUPABASE_BUCKET_HEATZONE, heatzone_ref, ""),
-            "original_storage_path": original_ref,
-            "heatzone_storage_path": heatzone_ref,
-            "analysis_json": res.get("analysis_json"),
-            "summary": res.get("summary") or "Analysis pending",
-            "health_band": res.get("health_band") or "watch",
-            "health_score": res.get("health_score") or 0.0,
-            "confidence": res.get("confidence") or 0.0,
-            "analysis_json_path": "",
-            "display_title": display_title,
-        }
+        _hydrate_missing_result_media_urls([entry])
         return entry if entry["original_url"] and entry["heatzone_url"] else None
     except Exception:
         return None
@@ -773,9 +845,9 @@ def save_user_results_index(user_id: str, items: list[dict[str, Any]]) -> None:
     return
 
 
-def create_heatzone_image(original_path: Path, output_path: Path) -> tuple[float, float]:
+def _load_rgb_variants_for_analysis(original_path: Path) -> tuple[np.ndarray, np.ndarray]:
     try:
-        from PIL import Image
+        from PIL import Image, ImageOps
     except ModuleNotFoundError:
         try:
             import cv2
@@ -785,63 +857,71 @@ def create_heatzone_image(original_path: Path, output_path: Path) -> tuple[float
         raw = np.fromfile(str(original_path), dtype=np.uint8)
         bgr = cv2.imdecode(raw, cv2.IMREAD_COLOR)
         if bgr is None:
-            raise RuntimeError("Unable to decode image file.")
+            raise RuntimeError("Unable to decode uploaded image.")
+        full_rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        analysis_rgb = full_rgb
+        height, width = full_rgb.shape[:2]
+        if max(height, width) > ANALYSIS_MAX_DIMENSION:
+            scale = ANALYSIS_MAX_DIMENSION / float(max(height, width))
+            resized_width = max(1, int(round(width * scale)))
+            resized_height = max(1, int(round(height * scale)))
+            analysis_rgb = cv2.resize(full_rgb, (resized_width, resized_height), interpolation=cv2.INTER_AREA)
+        return np.ascontiguousarray(full_rgb), np.ascontiguousarray(analysis_rgb)
 
-        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB).astype(np.float32)
-        r = rgb[:, :, 0]
-        g = rgb[:, :, 1]
-        b = rgb[:, :, 2]
-        score = _rgb_stress_score(r, g, b)
-        critical_cutoff, low_cutoff, watch_cutoff = _stress_band_cutoffs("DJI Mini 4 Pro")
+    with Image.open(original_path) as source:
+        full_rgb_image = ImageOps.exif_transpose(source).convert("RGB")
+        analysis_rgb_image = full_rgb_image.copy()
+        if max(analysis_rgb_image.size) > ANALYSIS_MAX_DIMENSION:
+            analysis_rgb_image.thumbnail((ANALYSIS_MAX_DIMENSION, ANALYSIS_MAX_DIMENSION), Image.Resampling.LANCZOS)
+        full_rgb = np.asarray(full_rgb_image, dtype=np.uint8)
+        analysis_rgb = np.asarray(analysis_rgb_image, dtype=np.uint8)
+    return np.ascontiguousarray(full_rgb), np.ascontiguousarray(analysis_rgb)
 
-        overlay = np.zeros_like(rgb, dtype=np.uint8)
-        mask_critical = score < critical_cutoff
-        mask_low = (score >= critical_cutoff) & (score < low_cutoff)
-        mask_watch = (score >= low_cutoff) & (score < watch_cutoff)
-        mask_good = score >= watch_cutoff
 
-        overlay[mask_critical] = (255, 64, 64)
-        overlay[mask_low] = (255, 171, 64)
-        overlay[mask_watch] = (255, 227, 84)
-        overlay[mask_good] = (80, 214, 114)
+def create_heatzone_image_from_rgb(rgb_image: np.ndarray, output_path: Path) -> tuple[float, float]:
+    rgb_uint8 = np.asarray(rgb_image, dtype=np.uint8)
+    rgb_np = rgb_uint8.astype(np.float32)
+    r = rgb_np[:, :, 0]
+    g = rgb_np[:, :, 1]
+    b = rgb_np[:, :, 2]
+    score = _rgb_stress_score(r, g, b)
+    critical_cutoff, low_cutoff, watch_cutoff = _stress_band_cutoffs("DJI Mini 4 Pro")
 
-        blended = (0.55 * rgb + 0.45 * overlay).clip(0, 255).astype(np.uint8)
-        out_bgr = cv2.cvtColor(blended, cv2.COLOR_RGB2BGR)
+    overlay = np.zeros_like(rgb_np, dtype=np.uint8)
+    mask_critical = score < critical_cutoff
+    mask_low = (score >= critical_cutoff) & (score < low_cutoff)
+    mask_watch = (score >= low_cutoff) & (score < watch_cutoff)
+    mask_good = score >= watch_cutoff
+
+    overlay[mask_critical] = (255, 64, 64)
+    overlay[mask_low] = (255, 171, 64)
+    overlay[mask_watch] = (255, 227, 84)
+    overlay[mask_good] = (80, 214, 114)
+
+    blended_np = (0.55 * rgb_np + 0.45 * overlay).clip(0, 255).astype(np.uint8)
+    try:
+        from PIL import Image
+    except ModuleNotFoundError:
+        try:
+            import cv2
+        except ModuleNotFoundError as exc:
+            raise RuntimeError("Image processing dependency is missing. Install Pillow or OpenCV to enable analysis.") from exc
+
+        out_bgr = cv2.cvtColor(blended_np, cv2.COLOR_RGB2BGR)
         ext = output_path.suffix or ".png"
         ok, encoded = cv2.imencode(ext, out_bgr)
         if not ok:
             raise RuntimeError("Unable to encode heatzone image.")
         encoded.tofile(str(output_path))
-
-        return float(mask_critical.mean()), float(score.mean())
-
-    with Image.open(original_path) as im:
-        rgb = im.convert("RGB")
-        if max(rgb.size) > ANALYSIS_MAX_DIMENSION:
-            rgb.thumbnail((ANALYSIS_MAX_DIMENSION, ANALYSIS_MAX_DIMENSION), Image.Resampling.LANCZOS)
-
-        rgb_np = np.asarray(rgb, dtype=np.float32)
-        r = rgb_np[:, :, 0]
-        g = rgb_np[:, :, 1]
-        b = rgb_np[:, :, 2]
-        score = _rgb_stress_score(r, g, b)
-        critical_cutoff, low_cutoff, watch_cutoff = _stress_band_cutoffs("DJI Mini 4 Pro")
-
-        overlay = np.zeros_like(rgb_np, dtype=np.uint8)
-        mask_critical = score < critical_cutoff
-        mask_low = (score >= critical_cutoff) & (score < low_cutoff)
-        mask_watch = (score >= low_cutoff) & (score < watch_cutoff)
-        mask_good = score >= watch_cutoff
-
-        overlay[mask_critical] = (255, 64, 64)
-        overlay[mask_low] = (255, 171, 64)
-        overlay[mask_watch] = (255, 227, 84)
-        overlay[mask_good] = (80, 214, 114)
-
-        blended_np = (0.55 * rgb_np + 0.45 * overlay).clip(0, 255).astype(np.uint8)
+    else:
         Image.fromarray(blended_np, mode="RGB").save(output_path, format="PNG")
 
-        return float(mask_critical.mean()), float(score.mean())
+    return float(mask_critical.mean()), float(score.mean())
+
+
+def create_heatzone_image(original_path: Path, output_path: Path) -> tuple[float, float]:
+    _, analysis_rgb = _load_rgb_variants_for_analysis(original_path)
+    return create_heatzone_image_from_rgb(analysis_rgb, output_path)
 
 
 def _prepare_rgb_for_analysis(source_image: Any, max_dimension: int = ANALYSIS_MAX_DIMENSION) -> Any:
@@ -857,48 +937,25 @@ def _prepare_rgb_for_analysis(source_image: Any, max_dimension: int = ANALYSIS_M
 
 def run_rgb_analysis(original_path: Path, user_id: str, image_id: str) -> dict[str, Any]:
     camera_model = "DJI Mini 4 Pro"
-    try:
-        from PIL import Image
-    except ModuleNotFoundError:
-        try:
-            import cv2
-        except ModuleNotFoundError as exc:
-            raise RuntimeError("Image processing dependency is missing. Install Pillow or OpenCV.") from exc
-
-        raw = np.fromfile(str(original_path), dtype=np.uint8)
-        bgr = cv2.imdecode(raw, cv2.IMREAD_COLOR)
-        if bgr is None:
-            raise RuntimeError("Unable to decode uploaded image.")
-        rgb_np = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB).astype(np.float32)
-        r = rgb_np[:, :, 0]
-        g = rgb_np[:, :, 1]
-        b = rgb_np[:, :, 2]
-        mean_r = float(r.mean())
-        mean_g = float(g.mean())
-        mean_b = float(b.mean())
-        green_coverage = float(_green_dominant_mask(r, g, b, camera_model).mean())
-        dry_coverage = float(_dry_canopy_mask(r, g, b).mean())
-    else:
-        with Image.open(original_path) as im:
-            rgb = _prepare_rgb_for_analysis(im)
-            rgb_np = np.asarray(rgb, dtype=np.float32)
-            r = rgb_np[:, :, 0]
-            g = rgb_np[:, :, 1]
-            b = rgb_np[:, :, 2]
-            mean_r = float(r.mean())
-            mean_g = float(g.mean())
-            mean_b = float(b.mean())
-            green_coverage = float(_green_dominant_mask(r, g, b, camera_model).mean())
-            dry_coverage = float(_dry_canopy_mask(r, g, b).mean())
-    trained_prediction = predict_vegetation_damage_from_path(original_path)
-    stage_prediction = predict_growth_stage_from_path(original_path)
+    full_rgb_uint8, analysis_rgb_uint8 = _load_rgb_variants_for_analysis(original_path)
+    rgb_np = analysis_rgb_uint8.astype(np.float32)
+    r = rgb_np[:, :, 0]
+    g = rgb_np[:, :, 1]
+    b = rgb_np[:, :, 2]
+    mean_r = float(r.mean())
+    mean_g = float(g.mean())
+    mean_b = float(b.mean())
+    green_coverage = float(_green_dominant_mask(r, g, b, camera_model).mean())
+    dry_coverage = float(_dry_canopy_mask(r, g, b).mean())
+    trained_prediction = predict_vegetation_damage_from_rgb(full_rgb_uint8)
+    stage_prediction = predict_growth_stage_from_rgb(full_rgb_uint8)
     summary, explanation = _trained_damage_summary(trained_prediction, stage_prediction)
     extended_indices = _compute_extended_rgb_indices(mean_r, mean_g, mean_b, green_coverage)
 
     temp_dir = ensure_temp_dir(user_id)
     heatzone_filename = f"{image_id}_heatzone.png"
     heatzone_path = temp_dir / heatzone_filename
-    stress_ratio, avg_vigor = create_heatzone_image(original_path, heatzone_path)
+    stress_ratio, avg_vigor = create_heatzone_image_from_rgb(analysis_rgb_uint8, heatzone_path)
     weighted_health_score = _weighted_health_score(
         vigor_score=round((avg_vigor + 1) * 50, 2),
         biomass_score=round(extended_indices["relative_biomass_score"], 2),
@@ -2226,10 +2283,14 @@ def analyze_freeform_cropped_segments(
 
 
 def get_result_entry(user_id: str, image_id: str) -> dict[str, Any] | None:
-    items = load_user_results_index(user_id)
-    for item in items:
-        if str(item.get("image_id")) == str(image_id):
-            return item
+    try:
+        request_cache = getattr(g, "_user_results_index_cache", None)
+    except RuntimeError:
+        request_cache = None
+    if request_cache and user_id in request_cache:
+        for item in request_cache[user_id]:
+            if str(item.get("image_id")) == str(image_id):
+                return item
     return load_single_result_entry_from_supabase(user_id, image_id)
 
 
@@ -3220,29 +3281,52 @@ def rerun_result(image_id: str):
         entry["summary"] = processed["analysis"]["report"]["one_line_summary"]
 
         heatzone_object_path = f"{user_id}/{image_id}/{processed['heatzone_filename']}"
+        report_object_path = f"{user_id}/{image_id}.json"
         local_heatzone_path = Path(processed["heatzone_path"])
         cached_media = cache_result_media(str(user_id), image_id, original_path, local_heatzone_path)
-        ok_heat, err_heat = upload_file_to_bucket(local_heatzone_path, SUPABASE_BUCKET_HEATZONE, heatzone_object_path)
+        upload_results = upload_bucket_assets(
+            [
+                (
+                    "heatzone image",
+                    lambda: upload_file_to_bucket(
+                        local_heatzone_path,
+                        SUPABASE_BUCKET_HEATZONE,
+                        heatzone_object_path,
+                    ),
+                ),
+                (
+                    "report json",
+                    lambda: upload_json_to_bucket(
+                        SUPABASE_BUCKET_REPORTS,
+                        report_object_path,
+                        processed["analysis"],
+                    ),
+                ),
+            ]
+        )
+        ok_heat, err_heat = upload_results["heatzone image"]
         require_bucket_upload(
             ok_heat,
             "heatzone image",
             err_heat,
         )
-        entry["heatzone_storage_path"] = heatzone_object_path
-        entry["original_url"] = cached_media["original_url"] or signed_or_local_url(
-            SUPABASE_BUCKET_ORIGINAL,
-            entry.get("original_storage_path"),
-            "",
-        )
-        entry["heatzone_url"] = cached_media["heatzone_url"] or signed_or_local_url(
-            SUPABASE_BUCKET_HEATZONE,
-            heatzone_object_path,
-            "",
-        )
-
-        report_object_path = f"{user_id}/{image_id}.json"
-        ok_json, err_json = upload_json_to_bucket(SUPABASE_BUCKET_REPORTS, report_object_path, processed["analysis"])
+        ok_json, err_json = upload_results["report json"]
         require_bucket_upload(ok_json, "report json", err_json)
+        entry["heatzone_storage_path"] = heatzone_object_path
+        entry["original_url"] = cached_media["original_url"]
+        entry["heatzone_url"] = cached_media["heatzone_url"]
+        if not entry["original_url"]:
+            entry["original_url"] = signed_or_local_url(
+                SUPABASE_BUCKET_ORIGINAL,
+                entry.get("original_storage_path"),
+                "",
+            )
+        if not entry["heatzone_url"]:
+            entry["heatzone_url"] = signed_or_local_url(
+                SUPABASE_BUCKET_HEATZONE,
+                heatzone_object_path,
+                "",
+            )
 
         if not upsert_result_in_supabase(
             str(user_id),
@@ -3524,29 +3608,58 @@ def upload_image():
         original_object_path = f"{user_id}/{image_id}/{stamped_name}"
         heatzone_object_path = f"{user_id}/{image_id}/{processed['heatzone_filename']}"
         report_object_path = f"{user_id}/{image_id}.json"
-
-        ok_original, err_original = upload_file_to_bucket(original_path, SUPABASE_BUCKET_ORIGINAL, original_object_path)
-        require_bucket_upload(ok_original, "original image", err_original)
-        entry["original_storage_path"] = original_object_path
-
         local_heatzone_path = Path(processed["heatzone_path"])
         cached_media = cache_result_media(str(user_id), image_id, original_path, local_heatzone_path)
-        ok_heat, err_heat = upload_file_to_bucket(local_heatzone_path, SUPABASE_BUCKET_HEATZONE, heatzone_object_path)
+        upload_results = upload_bucket_assets(
+            [
+                (
+                    "original image",
+                    lambda: upload_file_to_bucket(
+                        original_path,
+                        SUPABASE_BUCKET_ORIGINAL,
+                        original_object_path,
+                    ),
+                ),
+                (
+                    "heatzone image",
+                    lambda: upload_file_to_bucket(
+                        local_heatzone_path,
+                        SUPABASE_BUCKET_HEATZONE,
+                        heatzone_object_path,
+                    ),
+                ),
+                (
+                    "report json",
+                    lambda: upload_json_to_bucket(
+                        SUPABASE_BUCKET_REPORTS,
+                        report_object_path,
+                        processed["analysis"],
+                    ),
+                ),
+            ]
+        )
+        ok_original, err_original = upload_results["original image"]
+        require_bucket_upload(ok_original, "original image", err_original)
+        ok_heat, err_heat = upload_results["heatzone image"]
         require_bucket_upload(ok_heat, "heatzone image", err_heat)
-        entry["heatzone_storage_path"] = heatzone_object_path
-        entry["original_url"] = cached_media["original_url"] or signed_or_local_url(
-            SUPABASE_BUCKET_ORIGINAL,
-            original_object_path,
-            "",
-        )
-        entry["heatzone_url"] = cached_media["heatzone_url"] or signed_or_local_url(
-            SUPABASE_BUCKET_HEATZONE,
-            heatzone_object_path,
-            "",
-        )
-
-        ok_report, err_report = upload_json_to_bucket(SUPABASE_BUCKET_REPORTS, report_object_path, processed["analysis"])
+        ok_report, err_report = upload_results["report json"]
         require_bucket_upload(ok_report, "report json", err_report)
+        entry["original_storage_path"] = original_object_path
+        entry["heatzone_storage_path"] = heatzone_object_path
+        entry["original_url"] = cached_media["original_url"]
+        entry["heatzone_url"] = cached_media["heatzone_url"]
+        if not entry["original_url"]:
+            entry["original_url"] = signed_or_local_url(
+                SUPABASE_BUCKET_ORIGINAL,
+                original_object_path,
+                "",
+            )
+        if not entry["heatzone_url"]:
+            entry["heatzone_url"] = signed_or_local_url(
+                SUPABASE_BUCKET_HEATZONE,
+                heatzone_object_path,
+                "",
+            )
 
         persisted_remote = upsert_result_in_supabase(str(user_id), entry, processed["analysis"])
         if not persisted_remote:

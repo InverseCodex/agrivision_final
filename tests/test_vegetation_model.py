@@ -3,10 +3,12 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image, ImageDraw
 
+import app as app_module
 from analysis.vegetation_damage_model import (
     predict_growth_stage_from_rgb,
     predict_vegetation_damage_from_rgb,
@@ -256,6 +258,61 @@ class VegetationDamageModelTests(unittest.TestCase):
         _, encoded = result["cropped_original_data_url"].split(",", 1)
         with Image.open(io.BytesIO(base64.b64decode(encoded))) as rendered:
             self.assertEqual(rendered.size, expected_size)
+
+    def test_load_user_results_index_caches_remote_lookup_per_request(self) -> None:
+        expected = [{"image_id": "result-1"}]
+
+        with app_module.app.test_request_context("/dashboard"):
+            with patch("app.load_user_results_from_supabase", return_value=expected) as loader:
+                first = app_module.load_user_results_index("user-1")
+                second = app_module.load_user_results_index("user-1")
+
+        self.assertEqual(first, expected)
+        self.assertEqual(second, expected)
+        self.assertEqual(loader.call_count, 1)
+
+    def test_get_result_entry_uses_single_lookup_when_history_is_not_prefetched(self) -> None:
+        expected = {"image_id": "result-42", "original_url": "/runtime-cache/example/original.jpg"}
+
+        with app_module.app.test_request_context("/results/result-42"):
+            with patch("app.load_single_result_entry_from_supabase", return_value=expected) as single_loader:
+                result = app_module.get_result_entry("user-1", "result-42")
+
+        self.assertEqual(result, expected)
+        single_loader.assert_called_once_with("user-1", "result-42")
+
+    def test_signed_or_local_url_reuses_cached_signed_url(self) -> None:
+        class FakeBucket:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def create_signed_url(self, object_path: str, expires_in: int) -> dict[str, str]:
+                self.calls += 1
+                return {"signedURL": f"https://example.test/{object_path}?exp={expires_in}"}
+
+        class FakeStorage:
+            def __init__(self, bucket: FakeBucket) -> None:
+                self._bucket = bucket
+
+            def from_(self, _bucket_name: str) -> FakeBucket:
+                return self._bucket
+
+        class FakeSupabase:
+            def __init__(self, bucket: FakeBucket) -> None:
+                self.storage = FakeStorage(bucket)
+
+        bucket = FakeBucket()
+        fake_supabase = FakeSupabase(bucket)
+        app_module.SIGNED_URL_CACHE.clear()
+        try:
+            with patch.object(app_module, "supabase", fake_supabase):
+                first = app_module.signed_or_local_url("original-images", "user-1/result-42/original.jpg", "")
+                second = app_module.signed_or_local_url("original-images", "user-1/result-42/original.jpg", "")
+        finally:
+            app_module.SIGNED_URL_CACHE.clear()
+
+        self.assertEqual(first, second)
+        self.assertEqual(bucket.calls, 1)
 
 
 if __name__ == "__main__":
